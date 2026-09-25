@@ -1,0 +1,17 @@
+{
+  "name": "Love Refactored",
+  "short_name": "LoveRef",
+  "description": "Local-first AI companion platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#13111a",
+  "theme_color": "#13111a",
+  "icons": [
+    {
+      "src": "/LoveRefactoredFavicon.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

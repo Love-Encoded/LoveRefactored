@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beta Agreement — Love Refactored</title>
+<link rel="icon" href="/LoveRefactoredFavicon.png">
+<style>
+  :root{--void:#08060E;--room:#100B1C;--lamp:#18112C;--lamp-hi:#211738;--line:#251B40;--line-lit:#3B2B63;--ink:#F0EAF8;--ink-em:#8E7CB5;--violet:#B44AFF;--live:#3DDC97;--danger:#F0566B}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--void);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif}
+  .wrap{height:100%;min-height:0;display:flex;align-items:center;justify-content:center;padding:24px 16px}
+  .card{width:100%;max-width:760px;max-height:100%;display:flex;flex-direction:column;background:var(--room);border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  header{display:flex;align-items:center;gap:14px;padding:18px 22px;border-bottom:1px solid var(--line);background:var(--lamp)}
+  header img{width:36px;height:36px;border-radius:8px}
+  header h1{font-size:17px;margin:0;font-weight:600}
+  header .v{color:var(--ink-em);font-size:12px;margin-top:2px}
+  .scroll{flex:1 1 auto;min-height:0;max-height:56vh;overflow:auto;-webkit-overflow-scrolling:touch;padding:20px 24px;background:var(--void)}
+  .scroll h1{font-size:19px;margin:0 0 6px}
+  .scroll p{margin:0 0 14px}
+  .scroll hr{border:0;border-top:1px solid var(--line);margin:18px 0}
+  .scroll strong{color:#fff}
+  .scroll a{color:var(--violet)}
+  footer{padding:16px 22px 20px;border-top:1px solid var(--line);background:var(--lamp)}
+  .hint{font-size:12.5px;color:var(--ink-em);margin:0 0 12px}
+  label{display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:14px}
+  label:has(input:disabled){cursor:not-allowed}
+  input[type=checkbox]{width:18px;height:18px;margin-top:2px;accent-color:var(--violet);flex:none;cursor:pointer}
+  input[type=checkbox]:disabled{cursor:not-allowed}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap}
+  .links{font-size:12.5px;color:var(--ink-em)}
+  .links a{color:var(--ink-em)}
+  button{background:var(--violet);color:#fff;border:0;border-radius:10px;padding:11px 20px;font-size:14px;font-weight:600;cursor:pointer}
+  button:disabled{background:var(--line-lit);color:var(--ink-em);cursor:not-allowed}
+  .err{color:var(--danger);font-size:13px;margin-top:10px;display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <header>
+      <img src="/LoveRefactoredLogo.png" alt="">
+      <div>
+        <h1>Before you go in</h1>
+        <div class="v" id="ver">Beta Participation Agreement</div>
+      </div>
+    </header>
+    <div class="scroll" id="doc"><p style="color:var(--ink-em)">Loading agreement…</p></div>
+    <footer>
+      <p class="hint" id="hint">Scroll to the bottom to enable the checkbox.</p>
+      <label><input type="checkbox" id="agree" disabled> I'm 18 or older, I've read this agreement and the license, and I accept them.</label>
+      <div class="row">
+        <div class="links"><a href="https://github.com/Love-Encoded/Love-Refactored/blob/main/LICENSE.md" target="_blank" rel="noopener">LICENSE.md</a> · <a href="https://github.com/Love-Encoded/Love-Refactored/blob/main/CLA.md" target="_blank" rel="noopener">CLA.md</a> · <a href="https://discord.gg/4ekGr67S8" target="_blank" rel="noopener">Report bugs on Discord</a></div>
+        <button id="go" disabled>Accept and continue</button>
+      </div>
+      <div class="err" id="err"></div>
+    </footer>
+  </div>
+</div>
+<script>
+(function(){
+  var doc=document.getElementById('doc'),agree=document.getElementById('agree'),go=document.getElementById('go'),err=document.getElementById('err'),hint=document.getElementById('hint'),ver=document.getElementById('ver');
+  var version='';
+
+  // Tiny markdown → HTML: headings, bold, hr, paragraphs. Enough for the agreement.
+  function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function render(md){
+    return md.split(/\n\s*\n/).map(function(b){
+      b=b.trim(); if(!b) return '';
+      if(b==='---') return '<hr>';
+      if(b.indexOf('# ')===0) return '<h1>'+esc(b.slice(2))+'</h1>';
+      var h=esc(b).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+      return '<p>'+h+'</p>';
+    }).join('');
+  }
+
+  fetch('/api/beta-agreement',{cache:'no-store'}).then(function(r){return r.json();}).then(function(j){
+    if(j.error) throw new Error(j.error);
+    version=j.version; ver.textContent='Beta Participation Agreement · v'+version;
+    doc.innerHTML=render(j.text);
+    if(j.accepted){ location.replace('/'); return; }
+    watchEnd();
+    check();
+    requestAnimationFrame(check);
+  }).catch(function(e){ doc.innerHTML='<p style="color:var(--danger)">Could not load the agreement: '+esc(e.message)+'</p>'; });
+
+  // Unlock once the last line of the agreement is actually on screen.
+  // A leftover-gap test (scrollHeight - scrollTop - clientHeight < 24) stays
+  // false here: padding and the last paragraph's margin sit below the text,
+  // so the ending is fully readable while ~30px of empty space remains and
+  // the checkbox never enables.
+  function endOnScreen(){
+    var last=doc.lastElementChild;
+    if(!last) return false;
+    var pane=doc.getBoundingClientRect();
+    var tail=last.getBoundingClientRect();
+    return tail.bottom<=pane.bottom+4 && tail.bottom>pane.top;
+  }
+  function check(){
+    if(agree.checked||!endOnScreen()) return;
+    agree.disabled=false;
+    hint.textContent='Tick the box to continue.';
+  }
+  function watchEnd(){
+    if(!window.IntersectionObserver) return;
+    var last=doc.lastElementChild;
+    if(!last) return;
+    var io=new IntersectionObserver(function(){ check(); },{root:doc,threshold:[0,1]});
+    io.observe(last);
+  }
+  doc.addEventListener('scroll',check,{passive:true});
+  window.addEventListener('resize',check);
+  agree.addEventListener('change',function(){ go.disabled=!agree.checked; });
+
+  go.addEventListener('click',function(){
+    go.disabled=true; err.style.display='none';
+    fetch('/api/beta-agreement/accept',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({version:version})})
+      .then(function(r){return r.json();})
+      .then(function(j){ if(!j.ok) throw new Error(j.error||'Unknown error'); location.replace('/'); })
+      .catch(function(e){ err.textContent=e.message; err.style.display='block'; go.disabled=false; });
+  });
+})();
+</script>
+</body>
+</html>

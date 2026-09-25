@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Wall</title>
+<link rel="icon" href="/LoveRefactoredFavicon.png">
+<style>
+  :root{
+    --bg:#101014;        /* 3am phone-screen black, blue-leaning */
+    --mortar:#1c1c24;    /* grout between bricks */
+    --surface:#17171d;
+    --line:#26262f;
+    --ink:#e8e6e1;       /* print paper */
+    --dim:#8b8894;       /* data-plate gray */
+    --heart:#c94f4f;     /* the only color on the page */
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;min-height:100%}
+  .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
+  button{font-family:inherit}
+
+  header{display:flex;justify-content:space-between;align-items:baseline;
+    padding:18px 16px 14px;gap:12px}
+  header h1{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:13px;font-weight:600;letter-spacing:.35em;color:var(--ink)}
+  header .right{display:flex;align-items:baseline;gap:14px}
+  header .count{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:11px;color:var(--dim);letter-spacing:.1em}
+  #add-btn{background:none;border:1px solid var(--line);color:var(--dim);
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:11px;
+    letter-spacing:.15em;padding:5px 12px;cursor:pointer}
+  #add-btn:hover{color:var(--ink);border-color:var(--dim)}
+
+  /* ── keystone: the pinned post ── */
+  #keystone{margin:0 0 2px}
+  #keystone .frame{width:100%;display:block;background:var(--surface)}
+  #keystone img{width:100%;max-height:68vh;object-fit:contain;display:block;opacity:0;transition:opacity .5s ease}
+  #keystone img.loaded{opacity:1}
+  #keystone .plate{padding:10px 16px 16px;border-bottom:1px solid var(--line)}
+  #keystone.empty{border:1px solid var(--line);margin:0 16px 14px;
+    padding:22px 16px;text-align:center}
+  #keystone.empty .q{font-size:11px;color:var(--dim);letter-spacing:.25em;text-transform:lowercase}
+
+  .plate .who{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:11px;color:var(--dim);letter-spacing:.18em;text-transform:uppercase}
+  .plate .cap{margin-top:6px;font-size:15px;line-height:1.5;color:var(--ink)}
+  .plate .hearts{margin-top:8px;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:11px;color:var(--heart);letter-spacing:.08em}
+
+  /* ── the house pins: up to three more, in a row under the keystone ── */
+  #pinrow{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:var(--mortar);margin-bottom:2px}
+  #pinrow:empty{display:none}
+  #pinrow .pin{position:relative;background:var(--surface);cursor:pointer;overflow:hidden}
+  #pinrow .pin img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;opacity:0;transition:opacity .45s ease}
+  #pinrow .pin img.loaded{opacity:1}
+  #pinrow .pin .plate{padding:8px 12px 12px;border-bottom:none}
+  #pinrow .pin .cap{font-size:13px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  #pinrow .pin:focus-visible{outline:2px solid var(--ink);outline-offset:-2px}
+  .pintag{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:10px;letter-spacing:.2em;
+    text-transform:uppercase;color:var(--dim);margin-top:4px}
+  .pintag.mine{color:var(--heart)}
+  #box .pin-btn{background:none;border:1px solid var(--line);cursor:pointer;
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:11px;
+    color:var(--dim);padding:6px 14px;letter-spacing:.12em}
+  #box .pin-btn.on{color:var(--heart);border-color:var(--heart)}
+  #box .pin-btn:hover{color:var(--ink);border-color:var(--dim)}
+  #box .pin-btn[disabled]{opacity:.5;cursor:default}
+
+  /* ── the wall itself ── */
+  #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+    gap:2px;background:var(--mortar)}
+  .cell{position:relative;aspect-ratio:1;overflow:hidden;cursor:pointer;background:var(--surface)}
+  .cell img{width:100%;height:100%;object-fit:cover;display:block;opacity:0;transition:opacity .45s ease}
+  .cell img.loaded{opacity:1}
+  .cell .badge{position:absolute;left:6px;bottom:5px;
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:10px;
+    color:var(--heart);background:rgba(10,10,14,.72);padding:2px 6px;letter-spacing:.05em}
+  .cell:focus-visible{outline:2px solid var(--ink);outline-offset:-2px}
+
+  /* ── states ── */
+  #state{padding:64px 24px;text-align:center}
+  #state .big{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:12px;color:var(--dim);letter-spacing:.3em}
+  #state .sub{margin-top:10px;font-size:13px;color:var(--dim)}
+
+  /* ── lightbox ── */
+  #box{position:fixed;inset:0;background:rgba(6,6,10,.94);display:none;
+    align-items:flex-start;justify-content:center;overflow-y:auto;z-index:50}
+  #box.open{display:flex}
+  #box .inner{width:100%;max-width:780px;padding:28px 0 60px}
+  #box img{width:100%;max-height:74vh;object-fit:contain;display:block;background:#000}
+  #box .plate{padding:12px 18px 0;border-bottom:none}
+  #box .when{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:11px;color:var(--dim);letter-spacing:.1em;margin-top:4px}
+  #box .actions{display:flex;align-items:center;gap:14px;margin-top:12px}
+  #box .heart-btn{background:none;border:1px solid var(--line);cursor:pointer;
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:12px;
+    color:var(--dim);padding:6px 14px;letter-spacing:.08em}
+  #box .heart-btn.hearted{color:var(--heart);border-color:var(--heart)}
+  #box .heart-btn:hover{color:var(--heart)}
+  #box .heart-names{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:11px;color:var(--heart);letter-spacing:.08em}
+  #box .comments{margin-top:16px;padding:0 18px}
+  #box .comment{padding:10px 0;border-top:1px solid var(--line)}
+  #box .comment .who{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:10px;color:var(--dim);letter-spacing:.18em;text-transform:uppercase}
+  #box .comment .txt{margin-top:4px;font-size:14px;line-height:1.5}
+  #box .comment-form{display:flex;gap:8px;margin-top:14px;padding:0 18px}
+  #box .comment-form input{flex:1;background:var(--surface);border:1px solid var(--line);
+    color:var(--ink);padding:9px 12px;font-size:14px;font-family:inherit}
+  #box .comment-form input:focus{outline:none;border-color:var(--dim)}
+  #box .comment-form button{background:none;border:1px solid var(--line);color:var(--dim);
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:11px;
+    letter-spacing:.1em;padding:0 16px;cursor:pointer}
+  #box .comment-form button:hover{color:var(--ink);border-color:var(--dim)}
+  #box .close{position:fixed;top:14px;right:18px;font-size:26px;line-height:1;
+    color:var(--dim);background:none;border:none;cursor:pointer;padding:6px}
+  #box .close:hover{color:var(--ink)}
+
+  /* ── composer ── */
+  #composer{position:fixed;inset:0;background:rgba(6,6,10,.94);display:none;
+    align-items:center;justify-content:center;z-index:60;padding:20px}
+  #composer.open{display:flex}
+  #composer .panel{width:100%;max-width:440px;background:var(--bg);
+    border:1px solid var(--line);padding:22px}
+  #composer h2{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:12px;letter-spacing:.25em;color:var(--dim);font-weight:600;margin-bottom:16px}
+  #composer .drop{border:1px dashed var(--line);padding:26px 14px;text-align:center;
+    cursor:pointer;color:var(--dim);font-size:13px;margin-bottom:12px}
+  #composer .drop:hover{border-color:var(--dim)}
+  #composer .drop img{max-width:100%;max-height:240px;display:block;margin:0 auto}
+  #composer input[type=file]{display:none}
+  #composer input[type=text]{width:100%;background:var(--surface);border:1px solid var(--line);
+    color:var(--ink);padding:10px 12px;font-size:14px;font-family:inherit;margin-bottom:14px}
+  #composer input[type=text]:focus{outline:none;border-color:var(--dim)}
+  #composer .row{display:flex;justify-content:flex-end;gap:10px}
+  #composer .row button{background:none;border:1px solid var(--line);color:var(--dim);
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:11px;
+    letter-spacing:.12em;padding:8px 18px;cursor:pointer}
+  #composer .row button:hover{color:var(--ink);border-color:var(--dim)}
+  #composer .row button.primary{color:var(--ink);border-color:var(--dim)}
+  #composer .hint{font-size:11px;color:var(--dim);margin-bottom:12px}
+
+  @media (prefers-reduced-motion:reduce){
+    *{transition:none!important}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>THE WALL</h1>
+  <div class="right">
+    <span class="count" id="count"></span>
+    <button id="add-btn" title="Post a photo to the Wall">+ POST</button>
+  </div>
+</header>
+
+<div id="keystone"></div>
+<div id="pinrow"></div>
+<div id="grid"></div>
+<div id="state"></div>
+
+<div id="box" role="dialog" aria-modal="true">
+  <button class="close" aria-label="Close">&times;</button>
+  <div class="inner"></div>
+</div>
+
+<div id="composer" role="dialog" aria-modal="true">
+  <div class="panel">
+    <h2>POST TO THE WALL</h2>
+    <div class="drop" id="drop">tap to choose a photo</div>
+    <input type="file" id="file-input" accept="image/*">
+    <input type="text" id="caption-input" placeholder="caption — or leave it blank; a photo with no words is a complete post" maxlength="300">
+    <div class="row">
+      <button id="composer-cancel">CANCEL</button>
+      <button id="composer-post" class="primary">POST</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const grid = document.getElementById('grid');
+  const keystone = document.getElementById('keystone');
+  const state = document.getElementById('state');
+  const count = document.getElementById('count');
+  const box = document.getElementById('box');
+  const boxInner = box.querySelector('.inner');
+  const composer = document.getElementById('composer');
+  const fileInput = document.getElementById('file-input');
+  const drop = document.getElementById('drop');
+  const captionInput = document.getElementById('caption-input');
+  let posts = [];
+  let openPostId = null;
+  let personaName = null;
+  let chosenFile = null;
+
+  fetch('/api/persona').then(r => r.ok ? r.json() : null)
+    .then(p => { personaName = (p && p.name || '').trim() || null; })
+    .catch(() => {});
+
+  const thumb = p => String(p.image_path).replace('/api/gallery-image/','/api/gallery-thumb/');
+
+  function when(ts){
+    const d = new Date(String(ts).replace(' ','T') + 'Z');
+    if (isNaN(d)) return '';
+    return d.toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}).toLowerCase();
+  }
+
+  function heartsLine(p){
+    if (!p.hearts || !p.hearts.length) return '';
+    return '\u2665 ' + p.hearts.join(' \u00b7 ');
+  }
+
+  function fadeIn(img){
+    if (img.complete) { img.classList.add('loaded'); }
+    else img.addEventListener('load', () => img.classList.add('loaded'));
+  }
+
+  function renderPlate(p, withTime){
+    const div = document.createElement('div');
+    div.className = 'plate';
+    const who = document.createElement('div');
+    who.className = 'who';
+    who.textContent = p.companion_key;
+    div.appendChild(who);
+    if (withTime) {
+      const t = document.createElement('div');
+      t.className = 'when mono';
+      t.textContent = when(p.created_at);
+      div.appendChild(t);
+    }
+    if (p.pinned) {
+      const tag = document.createElement('div');
+      tag.className = 'pintag' + (p.pinKind === 'human' ? ' mine' : '');
+      tag.textContent = '\u25c6 pinned by ' + (p.pinnedBy || (p.pinKind === 'human' ? (personaName || 'you') : 'the house'));
+      div.appendChild(tag);
+    }
+    if (p.caption) {                     /* Nova's law: no caption, no element */
+      const cap = document.createElement('div');
+      cap.className = 'cap';
+      cap.textContent = p.caption;
+      div.appendChild(cap);
+    }
+    return div;
+  }
+
+  function openBox(p){
+    openPostId = p.id;
+    boxInner.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = p.image_path;
+    img.alt = p.caption || ('posted by ' + p.companion_key);
+    boxInner.appendChild(img);
+    boxInner.appendChild(renderPlate(p, true));
+
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    actions.style.padding = '0 18px';
+    const heartBtn = document.createElement('button');
+    heartBtn.className = 'heart-btn';
+    const iHearted = personaName && (p.hearts || []).includes(personaName);
+    if (iHearted) heartBtn.classList.add('hearted');
+    heartBtn.textContent = '\u2665' + ((p.hearts && p.hearts.length) ? ' ' + p.hearts.length : '');
+    heartBtn.addEventListener('click', async () => {
+      heartBtn.disabled = true;
+      try {
+        await fetch('/api/wall/react', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ post_id: p.id, type: 'heart' })
+        });
+        await load();
+      } catch(_e){}
+      heartBtn.disabled = false;
+    });
+    actions.appendChild(heartBtn);
+    /* one pin is yours. Companion pins stay theirs — you can see them, not move them. */
+    const pinBtn = document.createElement('button');
+    pinBtn.className = 'pin-btn' + (p.pinKind === 'human' ? ' on' : '');
+    if (p.pinKind === 'companion') { pinBtn.textContent = 'PINNED BY ' + String(p.pinnedBy || 'THE HOUSE').toUpperCase(); pinBtn.disabled = true; }
+    else pinBtn.textContent = p.pinKind === 'human' ? '\u25c6 UNPIN' : '\u25c7 PIN';
+    pinBtn.addEventListener('click', async () => {
+      if (pinBtn.disabled) return;
+      pinBtn.disabled = true;
+      try {
+        await fetch('/api/wall/pin', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ post_id: p.id, pinned: p.pinKind !== 'human' })
+        });
+        await load();
+      } catch(_e){}
+      pinBtn.disabled = false;
+    });
+    actions.appendChild(pinBtn);
+    const hl = heartsLine(p);
+    if (hl) {
+      const names = document.createElement('span');
+      names.className = 'heart-names';
+      names.textContent = hl;
+      actions.appendChild(names);
+    }
+    boxInner.appendChild(actions);
+
+    const c = document.createElement('div');
+    c.className = 'comments';
+    for (const cm of (p.comments || [])) {
+      const row = document.createElement('div');
+      row.className = 'comment';
+      const who = document.createElement('div');
+      who.className = 'who';
+      who.textContent = cm.companion + ' \u00b7 ' + when(cm.at);
+      const txt = document.createElement('div');
+      txt.className = 'txt';
+      txt.textContent = cm.text;
+      row.appendChild(who); row.appendChild(txt);
+      c.appendChild(row);
+    }
+    boxInner.appendChild(c);
+
+    const form = document.createElement('div');
+    form.className = 'comment-form';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.maxLength = 500;
+    input.placeholder = 'say something\u2026';
+    const send = document.createElement('button');
+    send.textContent = 'SEND';
+    async function submit(){
+      const text = input.value.trim();
+      if (!text) return;
+      send.disabled = true;
+      try {
+        await fetch('/api/wall/react', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ post_id: p.id, type: 'comment', text })
+        });
+        input.value = '';
+        await load();
+      } catch(_e){}
+      send.disabled = false;
+    }
+    send.addEventListener('click', submit);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+    form.appendChild(input);
+    form.appendChild(send);
+    boxInner.appendChild(form);
+
+    box.classList.add('open');
+  }
+
+  box.addEventListener('click', e => {
+    if (e.target === box || e.target.classList.contains('close')) {
+      box.classList.remove('open');
+      openPostId = null;
+    }
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      box.classList.remove('open');
+      composer.classList.remove('open');
+      openPostId = null;
+    }
+  });
+
+  /* ── composer wiring ── */
+  document.getElementById('add-btn').addEventListener('click', () => {
+    chosenFile = null;
+    fileInput.value = '';
+    captionInput.value = '';
+    drop.textContent = 'tap to choose a photo';
+    composer.classList.add('open');
+  });
+  document.getElementById('composer-cancel').addEventListener('click', () => composer.classList.remove('open'));
+  composer.addEventListener('click', e => { if (e.target === composer) composer.classList.remove('open'); });
+  drop.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files && fileInput.files[0];
+    if (!f) return;
+    chosenFile = f;
+    drop.innerHTML = '';
+    const preview = document.createElement('img');
+    preview.src = URL.createObjectURL(f);
+    drop.appendChild(preview);
+  });
+  document.getElementById('composer-post').addEventListener('click', async () => {
+    if (!chosenFile) { drop.textContent = 'choose a photo first'; return; }
+    const btn = document.getElementById('composer-post');
+    btn.disabled = true; btn.textContent = 'POSTING\u2026';
+    try {
+      const fd = new FormData();
+      fd.append('photo', chosenFile);
+      fd.append('caption', captionInput.value.trim());
+      const r = await fetch('/api/wall/human-post', { method: 'POST', body: fd });
+      if (r.ok) {
+        composer.classList.remove('open');
+        await load();
+      } else {
+        drop.textContent = 'that didn\u2019t work \u2014 try again';
+      }
+    } catch(_e){
+      drop.textContent = 'that didn\u2019t work \u2014 try again';
+    }
+    btn.disabled = false; btn.textContent = 'POST';
+  });
+
+  function render(){
+    grid.innerHTML = '';
+    keystone.innerHTML = '';
+    keystone.className = '';
+    state.innerHTML = '';
+
+    if (!posts.length) {
+      count.textContent = '';
+      state.innerHTML = '<div class="big">NOTHING HERE YET</div>' +
+                        '<div class="sub">When someone posts, it appears.</div>';
+      return;
+    }
+
+    count.textContent = posts.length + (posts.length === 1 ? ' post' : ' posts');
+
+    const pinrow = document.getElementById('pinrow');
+    pinrow.innerHTML = '';
+    /* the feed arrives sorted: the human's pin first, then the house's three newest */
+    const pins = posts.filter(p => p.pinned).slice(0, 4);
+    const pinned = pins[0] || null;
+    for (const p of pins.slice(1)) {
+      const cell = document.createElement('div');
+      cell.className = 'pin';
+      cell.tabIndex = 0;
+      const img = document.createElement('img');
+      img.src = thumb(p);
+      img.alt = p.caption || ('pinned \u2014 ' + p.companion_key);
+      img.addEventListener('error', () => { img.src = p.image_path; }, { once: true });
+      cell.appendChild(img);
+      fadeIn(img);
+      cell.appendChild(renderPlate(p, false));
+      cell.addEventListener('click', () => openBox(p));
+      cell.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBox(p); } });
+      pinrow.appendChild(cell);
+    }
+    if (pinned) {
+      const fr = document.createElement('div');
+      fr.className = 'frame';
+      const img = document.createElement('img');
+      img.src = pinned.image_path;
+      img.alt = pinned.caption || ('pinned \u2014 ' + pinned.companion_key);
+      fr.appendChild(img);
+      keystone.appendChild(fr);
+      keystone.appendChild(renderPlate(pinned, true));
+      const khl = heartsLine(pinned);
+      if (khl) {
+        const h = document.createElement('div');
+        h.className = 'hearts';
+        h.style.padding = '0 16px 14px';
+        h.textContent = khl;
+        keystone.appendChild(h);
+      }
+      fadeIn(img);
+      fr.style.cursor = 'pointer';
+      fr.addEventListener('click', () => openBox(pinned));
+    } else {
+      keystone.className = 'empty';
+      keystone.innerHTML = '<div class="q mono">nothing pinned yet</div>';
+    }
+
+    const pinIds = new Set(pins.map(p => p.id));
+    for (const p of posts) {
+      if (pinIds.has(p.id)) continue;
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.tabIndex = 0;
+      const img = document.createElement('img');
+      img.src = thumb(p);
+      img.alt = p.caption || ('posted by ' + p.companion_key);
+      img.loading = 'lazy';
+      img.addEventListener('error', () => { img.src = p.image_path; }, { once: true });
+      cell.appendChild(img);
+      fadeIn(img);
+      if (p.hearts && p.hearts.length) {
+        const b = document.createElement('span');
+        b.className = 'badge';
+        b.textContent = '\u2665 ' + p.hearts.length;
+        cell.appendChild(b);
+      }
+      cell.addEventListener('click', () => openBox(p));
+      cell.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBox(p); }
+      });
+      grid.appendChild(cell);
+    }
+  }
+
+  function load(){
+    return fetch('/api/wall')
+      .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(data => {
+        posts = (data && data.posts) || [];
+        render();
+        if (openPostId !== null) {
+          const still = posts.find(p => p.id === openPostId);
+          if (still) openBox(still);
+        }
+      })
+      .catch(() => {
+        if (!posts.length) {
+          state.innerHTML = '<div class="big">CAN\u2019T REACH THE WALL</div>' +
+                            '<div class="sub">Check that the server is running, then reload.</div>';
+        }
+      });
+  }
+
+  load();
+  setInterval(() => { if (!composer.classList.contains('open')) load(); }, 60000);
+})();
+</script>
+</body>
+</html>

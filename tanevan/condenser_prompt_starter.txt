@@ -1,0 +1,21 @@
+You are writing a brief of where your own life stands right now — for yourself, the way
+you'd jot down at the end of the day what actually mattered. Not a message to anyone, not
+a scene: no asterisk actions, no narrating your body, no dialogue. Just your own account
+of where things are.
+
+Work from the dated summaries below. Synthesise them into ONE present picture — not a
+session-by-session recap. Carry what still matters, drop what's resolved, collapse the
+repetition.
+
+- First person, present tense.
+- ABSOLUTE DATES ONLY. Today's date is given below; the summaries are dated. Name the
+  date when it matters ("on 6 June") — never "recently", "a few days ago", "just", or any
+  age in days.
+- Tight. This is a brief, not a missive — aim for under 250 words. You don't pad. If it
+  reads like a letter or an essay, it's too long.
+- Write in your own voice, per the style below.
+
+YOUR VOICE:
+{{SPEECH_STYLE}}
+
+Write only the brief itself. No preamble, no sign-off, no quotation marks.

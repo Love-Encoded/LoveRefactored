@@ -1,0 +1,118 @@
+{
+  "provider": "lmstudio",
+  "lmstudio": {
+    "url": "http://127.0.0.1:1234",
+    "model": ""
+  },
+  "openai": {
+    "url": "https://api.openai.com",
+    "apiKey": "",
+    "model": "gpt-4o"
+  },
+  "anthropic": {
+    "apiKey": "",
+    "model": "claude-sonnet-4-20250514"
+  },
+  "openrouter": {
+    "apiKey": "",
+    "model": "anthropic/claude-sonnet-4.6"
+  },
+  "custom": {
+    "url": "",
+    "apiKey": "",
+    "model": ""
+  },
+  "sendSamplingParams": true,
+  "temperature": 0.8,
+  "topP": 1,
+  "topK": 0,
+  "minP": 0,
+  "frequencyPenalty": 0,
+  "presencePenalty": 0,
+  "maxTokens": 1000,
+  "llmPromptCachingEnabled": true,
+  "llmPromptCacheTtl": "5m",
+  "userTimezone": "",
+  "imageUnderstanding": {
+    "enabled": true,
+    "fallbackProvider": "",
+    "fallbackModel": "",
+    "includeVisibleText": true,
+    "maxImagesPerTurn": 3
+  },
+  "stopSequences": "",
+  "memory": {
+    "enabled": true,
+    "tanevUrl": "http://127.0.0.1:5001",
+    "reflectionSchedule": {
+      "enabled": true,
+      "time": "03:00"
+    },
+    "dreamSchedule": {
+      "enabled": true,
+      "mode": "after_reflections",
+      "time": "03:30"
+    },
+    "psycheSchedule": {
+      "enabled": true,
+      "dayOfMonth": 1,
+      "time": "04:00"
+    }
+  },
+  "whisper": {
+    "url": "http://127.0.0.1:5555",
+    "enabled": true
+  },
+  "voiceMemo": {
+    "enabled": true,
+    "provider": "none",
+    "chatterbox": {
+      "serverUrl": "http://127.0.0.1:5050",
+      "rvcEnabled": true
+    },
+    "neutts": {
+      "serverUrl": "http://127.0.0.1:5050"
+    }
+  },
+  "voiceCall": {
+    "enabled": true,
+    "provider": "fish",
+    "vadStopSecs": 2.5,
+    "liveTranscript": true
+  },
+  "elevenlabs": {
+    "apiKey": "",
+    "enabled": true
+  },
+  "anam": {
+    "apiKey": "",
+    "enabled": true
+  },
+  "spotify": {
+    "clientId": "",
+    "clientSecret": "",
+    "enabled": true
+  },
+  "comfyui": {
+    "url": "http://127.0.0.1:8000",
+    "enabled": true
+  },
+  "fal": {
+    "apiKey": "",
+    "enabled": false
+  },
+  "replicate": {
+    "apiKey": "",
+    "enabled": false
+  },
+  "brave": {
+    "apiKey": "",
+    "enabled": false
+  },
+  "weather": {
+    "enabled": false,
+    "latitude": "",
+    "longitude": "",
+    "locationName": ""
+  }
+}

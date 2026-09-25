@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Archive</title>
+<link rel="icon" href="/LoveRefactoredFavicon.png">
+<style>
+  /* Palette matches the live chat shell — the Archive wears the same skin. */
+  :root{
+    --bg-void:#09070f;
+    --bg-surface:#110c20;
+    --bg-deeper:#150f28;
+    --bg-primary:#1c1436;
+    --bg-hover:#1a1230;
+    --bubble-companion:#16103a;
+    --bubble-user:#130f20;
+    --text-primary:#EAE2F5;
+    --text-secondary:#C4A8F0;
+    --text-muted:#5C4580;
+    --text-subtle:#9178B8;
+    --text-italic-user:#A898C8;
+    --text-name:#00F5FF;
+    --accent:#B44AFF;
+    --wisteria:#FF2DF7;
+    --border:#5C4580;
+    --border-dark:#4a3570;
+    --error:#ef4444;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg-void);color:var(--text-primary);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;overflow:hidden}
+  .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+  button{font-family:inherit;cursor:pointer}
+
+  header{display:flex;align-items:baseline;justify-content:space-between;
+    padding:14px 16px 12px;border-bottom:1px solid var(--bg-deeper)}
+  header h1{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:13px;font-weight:600;letter-spacing:.35em;color:var(--wisteria)}
+  header a{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:11px;letter-spacing:.12em;color:var(--text-muted);text-decoration:none}
+  header a:hover{color:var(--text-secondary)}
+
+  #layout{display:grid;grid-template-columns:220px 280px 1fr;
+    height:calc(100vh - 45px);height:calc(100dvh - 45px)}
+  .pane{overflow-y:auto;min-height:0}
+  #pane-convos{border-right:1px solid var(--bg-deeper);background:var(--bg-surface)}
+  #pane-sessions{border-right:1px solid var(--bg-deeper);background:var(--bg-void)}
+  #pane-chat{background:var(--bg-void);display:flex;flex-direction:column}
+
+  .pane-label{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--text-muted);
+    padding:12px 14px 8px;position:sticky;top:0;background:inherit;z-index:1}
+  .side-label{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:9px;letter-spacing:.25em;text-transform:uppercase;color:var(--text-muted);
+    padding:16px 14px 6px;border-top:1px solid var(--bg-deeper)}
+  .side-label:first-child{border-top:none;padding-top:4px}
+
+  /* search */
+  #search-row{display:flex;gap:6px;padding:0 14px 10px;position:sticky;top:33px;
+    background:var(--bg-surface);z-index:1}
+  #search-input{flex:1;min-width:0;background:var(--bg-void);color:var(--text-primary);
+    border:1px solid var(--border-dark);border-radius:6px;padding:7px 10px;font-size:13px}
+  #search-input::placeholder{color:var(--text-muted)}
+  #search-input:focus{outline:none;border-color:var(--accent)}
+  #search-btn{background:var(--bg-deeper);border:1px solid var(--border-dark);
+    border-radius:6px;color:var(--wisteria);font-size:13px;padding:0 11px}
+  #search-btn:hover{border-color:var(--accent)}
+  #search-scope{width:100%;background:var(--bg-void);color:var(--text-subtle);
+    border:1px solid var(--border-dark);border-radius:6px;padding:6px 8px;font-size:11px;
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+  #search-scope:focus{outline:none;border-color:var(--accent)}
+
+  /* conversation list */
+  .convo{display:flex;justify-content:space-between;align-items:baseline;gap:8px;
+    width:100%;text-align:left;background:none;border:none;border-left:2px solid transparent;
+    padding:9px 14px;color:var(--text-secondary);font-size:14px}
+  .convo:hover{background:var(--bg-hover)}
+  .convo.active{background:var(--bg-deeper);border-left-color:var(--wisteria);color:var(--text-primary)}
+  .convo .n{font-weight:600;color:var(--wisteria)}
+  .convo .count{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:10px;color:var(--text-muted);flex-shrink:0}
+
+  /* session list */
+  #month-filter{margin:0 14px 10px;width:calc(100% - 28px);
+    background:var(--bg-surface);color:var(--text-secondary);
+    border:1px solid var(--border-dark);border-radius:6px;padding:6px 8px;font-size:12px}
+  .session{display:block;width:100%;text-align:left;background:none;border:none;
+    border-left:2px solid transparent;padding:10px 14px;color:var(--text-secondary)}
+  .session:hover{background:var(--bg-hover)}
+  .session.active{background:var(--bg-deeper);border-left-color:var(--accent)}
+  .session .date{font-size:13px;font-weight:600;color:var(--text-primary)}
+  .session .meta{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:10px;color:var(--text-muted);margin-top:3px;letter-spacing:.05em}
+
+  /* search results */
+  .hit{display:block;width:100%;text-align:left;background:none;border:none;
+    border-left:2px solid transparent;border-bottom:1px solid var(--bg-deeper);
+    padding:10px 14px;color:var(--text-secondary)}
+  .hit:hover{background:var(--bg-hover)}
+  .hit .top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+  .hit .who{font-size:12px;font-weight:700;color:var(--wisteria)}
+  .hit .date{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:9px;color:var(--text-muted);letter-spacing:.05em;flex-shrink:0}
+  .hit .snip{margin-top:4px;font-size:12px;line-height:1.45;color:var(--text-subtle);
+    overflow-wrap:break-word}
+  .hit .snip mark{background:none;color:var(--text-name);font-weight:600}
+  #clear-search{display:none;width:calc(100% - 28px);margin:0 14px 10px;
+    background:none;border:1px solid var(--border-dark);border-radius:6px;
+    color:var(--text-muted);font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:10px;letter-spacing:.12em;padding:6px}
+  #clear-search:hover{color:var(--text-secondary);border-color:var(--border)}
+
+  /* chat pane */
+  #chat-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    padding:10px 16px;border-bottom:1px solid var(--bg-deeper);background:var(--bg-surface)}
+  #chat-title{font-size:13px;color:var(--text-secondary);flex:1;min-width:120px}
+  #chat-title b{color:var(--text-name)}
+  .toggle{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-subtle);
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.05em}
+  .toggle input{accent-color:var(--accent)}
+  #messages{flex:1;overflow-y:auto;padding:16px 14px 40px;min-height:0}
+
+  .day-divider{display:flex;align-items:center;gap:10px;margin:22px 0 14px;
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:10px;letter-spacing:.2em;color:var(--text-muted);text-transform:uppercase}
+  .day-divider::before,.day-divider::after{content:"";flex:1;height:1px;background:var(--bg-deeper)}
+
+  .msg{max-width:78%;margin:0 0 10px;padding:9px 13px;border-radius:12px;
+    font-size:15px;line-height:1.5;overflow-wrap:break-word;white-space:pre-wrap}
+  .msg .who{color:var(--text-name);font-size:13px;font-weight:700;margin-bottom:3px;white-space:normal}
+  .msg .when{display:block;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:9px;color:var(--text-muted);margin-top:5px;letter-spacing:.05em;white-space:normal}
+  .msg.companion{background:var(--bubble-companion);border-bottom-left-radius:4px;margin-right:auto}
+  .msg.companion em{color:var(--text-subtle)}
+  .msg.user{background:var(--bubble-user);border-bottom-right-radius:4px;margin-left:auto}
+  .msg.user em{color:var(--text-italic-user)}
+  .msg.user .who{color:var(--text-secondary)}
+  .msg.flash{outline:2px solid var(--accent);animation:flashfade 2.4s ease forwards}
+  @keyframes flashfade{0%,55%{outline-color:var(--accent)}100%{outline-color:transparent}}
+
+  .event{margin:6px auto 12px;max-width:82%;text-align:center;
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:10px;color:var(--text-muted);letter-spacing:.08em}
+  .event .snip{display:block;color:var(--text-subtle);font-style:italic;
+    letter-spacing:0;margin-top:2px;overflow-wrap:break-word}
+
+  .empty,.loading,.err{padding:30px 16px;text-align:center;font-size:12px;
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    letter-spacing:.15em;color:var(--text-muted)}
+  .err{color:var(--error)}
+
+  .back-btn{display:none;background:none;border:none;color:var(--wisteria);
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:11px;
+    letter-spacing:.12em;padding:10px 14px;text-align:left;width:100%}
+
+  /* ── mobile: drill-down panels ── */
+  @media (max-width: 900px){
+    #layout{display:block;height:calc(100vh - 45px);height:calc(100dvh - 45px)}
+    .pane{display:none;height:100%}
+    #layout[data-view="convos"] #pane-convos{display:block}
+    #layout[data-view="sessions"] #pane-sessions{display:block}
+    #layout[data-view="chat"] #pane-chat{display:flex}
+    #pane-convos,#pane-sessions{border-right:none}
+    .back-btn{display:block}
+    .msg{max-width:88%}
+    #search-row{top:0}
+  }
+  @media (prefers-reduced-motion: no-preference){
+    .msg{animation:rise .18s ease both}
+    @keyframes rise{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .msg.flash{animation:none;outline-color:var(--accent)}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>THE ARCHIVE</h1>
+  <a href="/">&larr; back to chat</a>
+</header>
+
+<div id="layout" data-view="convos">
+  <div class="pane" id="pane-convos">
+    <div class="pane-label">Conversations</div>
+    <div id="search-row" style="flex-wrap:wrap">
+      <input id="search-input" type="search" placeholder="search&hellip;" autocomplete="off">
+      <button id="search-btn" title="Search">&#8981;</button>
+      <select id="search-scope"><option value="">everywhere</option></select>
+    </div>
+    <div id="convo-list"><div class="loading">opening the archive&hellip;</div></div>
+  </div>
+
+  <div class="pane" id="pane-sessions">
+    <button class="back-btn" id="back-to-convos">&larr; conversations</button>
+    <div class="pane-label" id="sessions-label">Sessions</div>
+    <button id="clear-search">&larr; BACK TO SESSIONS</button>
+    <select id="month-filter"><option value="">All time</option></select>
+    <div id="session-list"><div class="empty">pick a conversation</div></div>
+  </div>
+
+  <div class="pane" id="pane-chat">
+    <button class="back-btn" id="back-to-sessions">&larr; sessions</button>
+    <div id="chat-toolbar">
+      <div id="chat-title">Select a session to read</div>
+      <label class="toggle"><input type="checkbox" id="show-events"> show edits/deletes</label>
+    </div>
+    <div id="messages"><div class="empty">nothing open yet</div></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  var state = {
+    convos: [],
+    groupsByKey: {},    // lowercased group id -> real group name
+    convo: null,        // { name, isGroup, display }
+    sessions: [],       // newest first
+    session: null,      // session id
+    monthFilter: '',
+    mode: 'sessions',   // 'sessions' | 'results'
+    results: [],
+    query: '',
+    pendingJump: null   // { timestamp, text } — message to scroll to after load
+  };
+
+  var $ = function(id){ return document.getElementById(id); };
+  var layout = $('layout');
+
+  // ---------- helpers ----------
+  function esc(s){
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  // *action text* -> <em>, applied AFTER escaping
+  function italics(s){
+    return s.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+  }
+  function titleCase(s){
+    return String(s).replace(/_/g, ' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); });
+  }
+  function displayName(raw){
+    var n = String(raw || '');
+    var isGroup = n.indexOf('group_') === 0;
+    if (isGroup){
+      var gid = n.slice(6).toLowerCase();
+      var real = state.groupsByKey[gid];
+      return { base: real || titleCase(n.slice(6)), isGroup: true };
+    }
+    return { base: titleCase(n), isGroup: false };
+  }
+  function fmtDate(ts){
+    var d = new Date(ts);
+    if (isNaN(d)) return String(ts || '');
+    return d.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+  }
+  function fmtTime(ts){
+    var d = new Date(ts);
+    if (isNaN(d)) return '';
+    return d.toLocaleTimeString(undefined, { hour:'numeric', minute:'2-digit' });
+  }
+  function monthKey(ts){
+    var d = new Date(ts);
+    if (isNaN(d)) return '';
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+  }
+  function monthLabel(key){
+    var p = key.split('-');
+    var d = new Date(Number(p[0]), Number(p[1]) - 1, 1);
+    return d.toLocaleDateString(undefined, { month:'long', year:'numeric' });
+  }
+  function getJSON(url){
+    return fetch(url, { credentials:'same-origin' }).then(function(r){
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    });
+  }
+  function setView(v){ layout.setAttribute('data-view', v); }
+  function renderScope(){
+    var sel = $('search-scope');
+    var prev = sel.value;
+    var html = '<option value="">everywhere</option>';
+    if (state.convo){
+      html += '<option value="current">just ' + esc(state.convo.display.toLowerCase()) + '</option>';
+    }
+    sel.innerHTML = html;
+    sel.value = (prev === 'current' && state.convo) ? 'current' : '';
+  }
+
+  // ---------- conversations ----------
+  function loadConvos(){
+    var chats = getJSON('/api/chatlog');
+    var groups = getJSON('/api/groups').catch(function(){ return []; });
+    Promise.all([chats, groups]).then(function(both){
+      var data = both[0] || {};
+      var groupList = Array.isArray(both[1]) ? both[1] : (both[1] && both[1].groups) || [];
+      state.groupsByKey = {};
+      groupList.forEach(function(g){
+        if (g && g.id) state.groupsByKey[String(g.id).toLowerCase()] = g.name || '';
+      });
+      state.convos = (data.logs || []).slice().sort(function(a,b){
+        return (b.messages||0) - (a.messages||0);
+      });
+      renderConvos();
+    }).catch(function(e){
+      $('convo-list').innerHTML = '<div class="err">could not open the archive<br>' + esc(e.message) + '</div>';
+    });
+  }
+  function convoButton(c){
+    var d = displayName(c.name);
+    var btn = document.createElement('button');
+    btn.className = 'convo' + (state.convo && state.convo.name === c.name ? ' active' : '');
+    btn.innerHTML =
+      '<span class="n">' + esc(d.base) + '</span>' +
+      '<span class="count">' + esc(String(c.messages || 0)) + '</span>';
+    btn.addEventListener('click', function(){ selectConvo(c); });
+    return btn;
+  }
+  function renderConvos(){
+    var box = $('convo-list');
+    if (!state.convos.length){
+      box.innerHTML = '<div class="empty">no chat logs yet</div>';
+      return;
+    }
+    box.innerHTML = '';
+    var solo = [], groups = [];
+    state.convos.forEach(function(c){
+      var isGroup = c.isGroup || String(c.name).indexOf('group_') === 0;
+      (isGroup ? groups : solo).push(c);
+    });
+    if (solo.length){
+      var l1 = document.createElement('div');
+      l1.className = 'side-label';
+      l1.textContent = 'Companions';
+      box.appendChild(l1);
+      solo.forEach(function(c){ box.appendChild(convoButton(c)); });
+    }
+    if (groups.length){
+      var l2 = document.createElement('div');
+      l2.className = 'side-label';
+      l2.textContent = 'Group chats';
+      box.appendChild(l2);
+      groups.forEach(function(c){ box.appendChild(convoButton(c)); });
+    }
+  }
+  function selectConvo(c){
+    var d = displayName(c.name);
+    state.convo = { name: c.name, isGroup: !!(c.isGroup || String(c.name).indexOf('group_') === 0), display: d.base };
+    state.session = null;
+    state.monthFilter = '';
+    exitResultsMode();
+    renderScope();
+    renderConvos();
+    setView('sessions');
+    loadSessions();
+  }
+
+  // ---------- sessions ----------
+  function loadSessions(){
+    $('session-list').innerHTML = '<div class="loading">finding sessions&hellip;</div>';
+    var url = '/api/chatlog/' + encodeURIComponent(state.convo.name) +
+              '/sessions?group=' + (state.convo.isGroup ? 'true' : 'false');
+    getJSON(url).then(function(data){
+      state.sessions = (data.sessions || []).slice().reverse(); // newest first
+      buildMonthFilter();
+      renderSessions();
+    }).catch(function(e){
+      $('session-list').innerHTML = '<div class="err">could not load sessions<br>' + esc(e.message) + '</div>';
+    });
+  }
+  function buildMonthFilter(){
+    var sel = $('month-filter');
+    var months = [];
+    state.sessions.forEach(function(s){
+      var k = monthKey(s.firstMessage);
+      if (k && months.indexOf(k) === -1) months.push(k);
+    });
+    sel.innerHTML = '<option value="">All time</option>' + months.map(function(k){
+      return '<option value="' + esc(k) + '">' + esc(monthLabel(k)) + '</option>';
+    }).join('');
+    sel.value = state.monthFilter;
+  }
+  function renderSessions(){
+    if (state.mode !== 'sessions') return;
+    var box = $('session-list');
+    var list = state.sessions.filter(function(s){
+      return !state.monthFilter || monthKey(s.firstMessage) === state.monthFilter;
+    });
+    if (!list.length){
+      box.innerHTML = '<div class="empty">no sessions here</div>';
+      return;
+    }
+    box.innerHTML = '';
+    list.forEach(function(s){
+      var btn = document.createElement('button');
+      btn.className = 'session' + (state.session === s.id ? ' active' : '');
+      var range = fmtTime(s.firstMessage) +
+        (s.lastMessage && s.lastMessage !== s.firstMessage ? ' \u2013 ' + fmtTime(s.lastMessage) : '');
+      btn.innerHTML =
+        '<div class="date">' + esc(fmtDate(s.firstMessage)) + '</div>' +
+        '<div class="meta">' + esc(range) + ' \u00b7 ' + esc(String(s.count || 0)) + ' msgs</div>';
+      btn.addEventListener('click', function(){ selectSession(s.id); });
+      box.appendChild(btn);
+    });
+  }
+  function selectSession(id){
+    state.session = id;
+    renderSessions();
+    setView('chat');
+    loadMessages();
+  }
+
+  // ---------- search ----------
+  function runSearch(){
+    var q = $('search-input').value.trim();
+    if (!q) return;
+    state.query = q;
+    state.mode = 'results';
+    $('sessions-label').textContent = 'Results';
+    $('clear-search').style.display = 'block';
+    $('month-filter').style.display = 'none';
+    var scoped = $('search-scope').value === 'current' && state.convo;
+    state.scopeLabel = scoped ? state.convo.display : '';
+    $('session-list').innerHTML = '<div class="loading">searching ' +
+      (scoped ? esc(state.convo.display.toLowerCase()) : 'everything') + '&hellip;</div>';
+    setView('sessions');
+    var url = '/api/chatlog-search?q=' + encodeURIComponent(q);
+    if (scoped){
+      url += '&name=' + encodeURIComponent(state.convo.name) +
+             '&group=' + (state.convo.isGroup ? 'true' : 'false');
+    }
+    getJSON(url).then(function(data){
+      state.results = data.results || [];
+      renderResults();
+    }).catch(function(e){
+      $('session-list').innerHTML = '<div class="err">search failed<br>' + esc(e.message) + '</div>';
+    });
+  }
+  function exitResultsMode(){
+    state.mode = 'sessions';
+    $('sessions-label').textContent = 'Sessions';
+    $('clear-search').style.display = 'none';
+    $('month-filter').style.display = '';
+  }
+  function snippet(text, q){
+    var t = String(text || '');
+    var idx = t.toLowerCase().indexOf(q.toLowerCase());
+    var start = Math.max(0, idx - 55);
+    var end = Math.min(t.length, idx + q.length + 55);
+    var s = (start > 0 ? '\u2026' : '') + t.slice(start, end) + (end < t.length ? '\u2026' : '');
+    var safeQ = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return esc(s).replace(new RegExp(safeQ.replace(/[&<>"']/g, function(ch){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
+    }), 'gi'), function(m){ return '<mark>' + m + '</mark>'; });
+  }
+  function renderResults(){
+    var box = $('session-list');
+    $('sessions-label').textContent = 'Results' +
+      (state.scopeLabel ? ' \u00b7 ' + state.scopeLabel : '') +
+      ' \u00b7 ' + state.results.length +
+      (state.results.length >= 200 ? '+ (first 200)' : '');
+    if (!state.results.length){
+      box.innerHTML = '<div class="empty">no messages match \u201c' + esc(state.query) + '\u201d</div>';
+      return;
+    }
+    box.innerHTML = '';
+    state.results.forEach(function(r){
+      var d = displayName(r.conversation_key);
+      var whoSaid = String(r.sender || '').toLowerCase() === 'user' ? 'You'
+        : (r.sender && r.sender !== 'companion' ? r.sender : d.base);
+      var btn = document.createElement('button');
+      btn.className = 'hit';
+      btn.innerHTML =
+        '<div class="top"><span class="who">' + esc(d.base) +
+        (String(whoSaid).toLowerCase() !== d.base.toLowerCase() ? ' \u00b7 ' + esc(whoSaid) : '') +
+        '</span><span class="date">' + esc(fmtDate(r.timestamp)) + '</span></div>' +
+        '<div class="snip">' + snippet(r.text, state.query) + '</div>';
+      btn.addEventListener('click', function(){ openResult(r); });
+      box.appendChild(btn);
+    });
+  }
+  function openResult(r){
+    var d = displayName(r.conversation_key);
+    state.convo = {
+      name: r.conversation_key,
+      isGroup: String(r.conversation_key).indexOf('group_') === 0,
+      display: d.base
+    };
+    state.session = r.session;
+    state.pendingJump = { timestamp: r.timestamp, text: r.text };
+    renderConvos();
+    setView('chat');
+    loadMessages();
+  }
+
+  // ---------- messages ----------
+  function loadMessages(){
+    var box = $('messages');
+    box.innerHTML = '<div class="loading">unsealing&hellip;</div>';
+    var showEvents = $('show-events').checked;
+    var url = '/api/chatlog/' + encodeURIComponent(state.convo.name) +
+              '/session/' + encodeURIComponent(state.session) +
+              '?group=' + (state.convo.isGroup ? 'true' : 'false') +
+              '&hideEvents=' + (showEvents ? 'false' : 'true');
+    getJSON(url).then(function(data){
+      renderMessages(data.messages || []);
+    }).catch(function(e){
+      box.innerHTML = '<div class="err">could not load session<br>' + esc(e.message) + '</div>';
+    });
+  }
+  function renderMessages(messages){
+    var box = $('messages');
+    $('chat-title').innerHTML = '<b>' + esc(state.convo.display) + '</b> \u00b7 ' +
+      esc(messages.length + ' entries');
+    if (!messages.length){
+      box.innerHTML = '<div class="empty">this session is empty</div>';
+      return;
+    }
+    box.innerHTML = '';
+    var lastDay = '';
+    messages.forEach(function(m){
+      var day = fmtDate(m.timestamp);
+      if (day && day !== lastDay){
+        var div = document.createElement('div');
+        div.className = 'day-divider';
+        div.textContent = day;
+        box.appendChild(div);
+        lastDay = day;
+      }
+      if (m.type && m.type !== 'message'){
+        box.appendChild(renderEvent(m));
+        return;
+      }
+      box.appendChild(renderBubble(m));
+    });
+    box.scrollTop = 0;
+    jumpIfPending(box);
+  }
+  function jumpIfPending(box){
+    if (!state.pendingJump) return;
+    var jump = state.pendingJump;
+    state.pendingJump = null;
+    var target = null;
+    var bubbles = box.querySelectorAll('.msg');
+    for (var i = 0; i < bubbles.length; i++){
+      if (bubbles[i].getAttribute('data-ts') === String(jump.timestamp)){
+        target = bubbles[i];
+        if (bubbles[i].getAttribute('data-txt') === String(jump.text).slice(0, 80)) break;
+      }
+    }
+    if (target){
+      target.classList.add('flash');
+      setTimeout(function(){ target.scrollIntoView({ block:'center' }); }, 60);
+    }
+  }
+  function renderBubble(m){
+    var isUser = String(m.sender || '').toLowerCase() === 'user';
+    var el = document.createElement('div');
+    el.className = 'msg ' + (isUser ? 'user' : 'companion');
+    el.setAttribute('data-ts', String(m.timestamp || ''));
+    el.setAttribute('data-txt', String(m.text || '').slice(0, 80));
+    var who = isUser ? 'You'
+      : (m.sender && m.sender !== 'companion' ? m.sender : state.convo.display);
+    el.innerHTML =
+      '<div class="who">' + esc(who) + '</div>' +
+      italics(esc(m.text)) +
+      '<span class="when">' + esc(fmtTime(m.timestamp)) + '</span>';
+    return el;
+  }
+  function renderEvent(m){
+    var el = document.createElement('div');
+    el.className = 'event';
+    var label = String(m.type).replace(/_/g, ' ');
+    var snip = '';
+    if (m.originalText) snip = m.originalText;
+    else if (m.detail && m.detail.originalText) snip = m.detail.originalText;
+    if (snip.length > 140) snip = snip.slice(0, 140) + '\u2026';
+    el.innerHTML = '\u2014 ' + esc(label) + ' \u2014' +
+      (snip ? '<span class="snip">' + esc(snip) + '</span>' : '');
+    return el;
+  }
+
+  // ---------- wiring ----------
+  $('month-filter').addEventListener('change', function(){
+    state.monthFilter = this.value;
+    renderSessions();
+  });
+  $('show-events').addEventListener('change', function(){
+    if (state.session) loadMessages();
+  });
+  $('search-btn').addEventListener('click', runSearch);
+  $('search-input').addEventListener('keydown', function(e){
+    if (e.key === 'Enter') runSearch();
+  });
+  $('clear-search').addEventListener('click', function(){
+    exitResultsMode();
+    if (state.convo){ renderSessions(); } else {
+      $('session-list').innerHTML = '<div class="empty">pick a conversation</div>';
+    }
+  });
+  $('back-to-convos').addEventListener('click', function(){ setView('convos'); });
+  $('back-to-sessions').addEventListener('click', function(){ setView('sessions'); });
+
+  renderScope();
+  loadConvos();
+})();
+</script>
+</body>
+</html>

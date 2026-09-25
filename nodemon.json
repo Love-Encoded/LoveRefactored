@@ -1,0 +1,11 @@
+{
+  "watch": ["server.js", "routes/", "lib/", "public/"],
+  "ignore": [
+    "data/",
+    "venv/",
+    "node_modules/",
+    "tanevan/",
+    "github-issues/"
+  ],
+  "ext": "js,html,css"
+}

@@ -1,0 +1,178 @@
+# Dependencies
+node_modules/
+
+# OS files
+.DS_Store
+**/.DS_Store
+Thumbs.db
+desktop.ini
+
+# === Secrets — NEVER commit ===
+.env
+.env.*
+!.env.example
+!.env.sample
+credentials.json
+secrets.json
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+api_keys.json
+id_rsa
+id_rsa.pub
+*.secret
+twilio.json
+*service-account*.json
+*firebase-adminsdk*.json
+google-application-credentials.json
+.netrc
+.npmrc.local
+auth.js
+!auth.example.js
+/auth-*.js
+!scripts/auth-users.js
+*auth*backup*.js
+*vps*auth*.js
+
+# Aider — chat history & embedding cache (private context; never commit)
+.aider*
+
+# Claude / local IDE scratch (worktrees, local settings)
+.claude/
+
+# Cursor — local project metadata (paths, transcripts); rules/skills are usually committed explicitly
+.cursor/projects/
+
+# === Personal / runtime data (all under data/) ===
+# Recursive: `data/*` would miss nested files (e.g. data/avatars/x.png)
+data/**
+!data/.gitkeep
+!data/settings.example.json
+
+# Legacy paths (pre–data/ directory) — ignore if still present during migration
+test-sms.js
+sms-history.json
+settings.json
+persona.json
+companion_order.json
+spotify_token.json
+spotify_playlists.json
+companion_seeds.json
+last_seen.json
+chat_history/
+chat_logs/
+journals/
+voice_messages/
+chat_uploads/
+companions/
+avatars/
+galleries/
+reference_images/
+groups/
+parlors/
+lorebooks/
+emotional_profiles/
+creative_projects/
+calendar.json
+memories.db
+chroma_db/
+
+# Memory & vector databases (elsewhere)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+tanevan/*.db
+tanevan/buffer/
+tanevan-data/
+
+# Audio files
+*.mp3
+*.wav
+*.ogg
+*.m4a
+*.opus
+*.flac
+
+# === Python ===
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.venv/
+**/venv/
+**/.venv/
+env/
+ENV/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+pip-log.txt
+
+# === Node/build artifacts ===
+dist/
+build/
+.next/
+.cache/
+coverage/
+.coverage
+.nyc_output/
+.eslintcache
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.pnpm-store/
+
+# === IDE / editor ===
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*~
+.project
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# === Runtime / temp ===
+*.log
+*.pid
+*.seed
+*.tmp
+*.temp
+tmp/
+temp/
+nohup.out
+pipecat.log
+
+# === Backup files ===
+*.bak
+*.bak.*
+*.old
+*.orig
+server.js.bak.*
+public/*.bak.*
+
+# === Voice call debug/private dumps ===
+voice_call_last_systemprompt.txt
+voice_call_dump.txt
+voice_call_*.txt
+voice_call_*.log
+voice_call_*.json
+
+# === Generic local-only ===
+*.local
+.local/
+data.LOCAL-BACKUP-*/
+.claude/
+data.*

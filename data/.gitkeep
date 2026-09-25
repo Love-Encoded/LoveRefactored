@@ -1,0 +1,2 @@
+# Runtime files (settings, companions, chat logs, …) are written here by the server.
+# Clone the repo without secrets; copy from settings.example.json to data/settings.json locally.
