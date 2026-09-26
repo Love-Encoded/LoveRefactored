@@ -212,6 +212,56 @@ _import_lock = threading.Lock()
 # Ensures only one extraction/update pipeline writes a companion DB at a time.
 _pipeline_running = set()
 _pipeline_lock = threading.Lock()
+# pipeline_failure_cap_v1: after N consecutive failed auto-runs for a companion, stop
+# auto-triggering and hold the buffer. Manual /flush or a tanevan restart re-arms.
+PIPELINE_MAX_FAILURES = int(os.environ.get("TANEVAN_PIPELINE_MAX_FAILURES", "3"))
+_pipeline_failures = {}   # key -> consecutive failure count
+_pipeline_paused = set()  # keys that hit the cap
+
+
+def _pipeline_note_result(companion, succeeded, db=None):
+    key = _pipeline_key(companion)
+    if not key:
+        return
+    hit_cap = False
+    with _pipeline_lock:
+        if succeeded:
+            _pipeline_failures.pop(key, None)
+            _pipeline_paused.discard(key)
+            return
+        n = _pipeline_failures.get(key, 0) + 1
+        _pipeline_failures[key] = n
+        if n >= PIPELINE_MAX_FAILURES:
+            hit_cap = True
+            _pipeline_paused.add(key)
+    if hit_cap:
+        msg = (f"PIPELINE PAUSED for {companion}: {n} consecutive failures — "
+               f"auto-flush disabled, buffer held. Manual flush re-arms.")
+        print(f"\n🛑 {msg}")
+        if db is not None:
+            try:
+                db.log("pipeline_paused", msg)
+            except Exception:
+                pass
+    else:
+        print(f"⚠️ Pipeline failure {n}/{PIPELINE_MAX_FAILURES} for {companion} — will retry on next trigger")
+
+
+def _pipeline_rearm(companion):
+    key = _pipeline_key(companion)
+    if not key:
+        return
+    with _pipeline_lock:
+        _pipeline_failures.pop(key, None)
+        _pipeline_paused.discard(key)
+
+
+def _is_pipeline_paused(companion):
+    key = _pipeline_key(companion)
+    if not key:
+        return False
+    with _pipeline_lock:
+        return key in _pipeline_paused
 
 
 def _try_start_pipeline(companion):
@@ -350,6 +400,9 @@ def buffer_and_check(messages, db):
 def trigger_pipeline_async(db):
     """Run the pipeline in a background thread so we don't block the chat."""
     companion = db.companion_name
+    if _is_pipeline_paused(companion):  # pipeline_failure_cap_v1
+        print(f"🛑 Pipeline paused for {companion} (failure cap) — auto-trigger skipped, buffer held")
+        return False
     if _is_pipeline_running(companion):
         print(f"↻ Pipeline already running for {companion}; skipping new trigger")
         return False
@@ -360,14 +413,18 @@ def trigger_pipeline_async(db):
             return
         try:
             un = _user_name_for_companion(db.companion_name)
+            before_count = db.get_buffer_count()  # pipeline_failure_cap_v1
             process_buffer(
                 db=db,
                 api_key=ANTHROPIC_API_KEY,
                 user_name=un,
                 on_activity=_make_pipeline_activity_callback(db.companion_name),
             )
+            # pipeline_failure_cap_v1: success = buffer actually shrank (cleared up to snapshot)
+            _pipeline_note_result(companion, db.get_buffer_count() < before_count, db=db)
         except Exception as e:
             print(f"✗ Pipeline error: {e}")
+            _pipeline_note_result(companion, False, db=db)  # pipeline_failure_cap_v1
         finally:
             _finish_pipeline(companion)
 
@@ -580,6 +637,7 @@ def buffer_message():
         "pipeline_eligible": triggered,
         "pipeline_trigger_skipped": trigger_skipped,
         "pipeline_running": pipeline_running,
+        "pipeline_paused": _is_pipeline_paused(companion),  # pipeline_failure_cap_v1
     })
 
 
@@ -831,6 +889,8 @@ def flush():
     if un is not None and str(un).strip():
         _store_user_name(companion, un)
 
+    if manual:
+        _pipeline_rearm(companion)  # pipeline_failure_cap_v1: manual flush re-arms auto-trigger
     print(f"\n🔔 Manual flush triggered for {companion} — {buffer_count} messages in buffer")
     try:
         result = process_buffer(
@@ -1095,7 +1155,8 @@ def test_llm_connection():
                 max_tokens=10,
                 messages=[{"role": "user", "content": "Say ok"}]
             )
-            text = resp.content[0].text if resp.content else ''
+            # thinking_block_fix_v1: 5-family models put a ThinkingBlock in slot 0 — join text blocks only
+            text = "".join(getattr(b, "text", "") for b in (resp.content or []) if getattr(b, "type", "") == "text")
             nick = _anthropic_display_name(model)
             return jsonify({"success": True, "message": f"Connected! {nick} says: {text}"})
         except Exception as e:

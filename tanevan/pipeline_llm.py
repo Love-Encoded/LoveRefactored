@@ -339,6 +339,17 @@ def anthropic_response_text(response):
     return "".join(parts).strip()
 
 
+def anthropic_thinking_pin(model):
+    """thinking_pin_v1: mirrors anthropicThinkingPin in server.js. 5-family models default
+    thinking ON. Older 5s accept disabled; opus-5-5/fable/mythos are always-on, so send
+    adaptive + effort low. Returns a dict to pass as extra_body."""
+    import re as _re
+    m = str(model or "")
+    if not _re.search(r"(sonnet|opus|haiku|fable|mythos)-5\b", m):
+        return {}
+    if _re.search(r"opus-5-5|fable|mythos", m):
+        return {"thinking": {"type": "adaptive"}, "output_config": {"effort": "low"}}
+    return {"thinking": {"type": "disabled"}}
 def anthropic_chat(api_key, model, system_prompt, user_content, max_tokens, cache_system=False):
     client = anthropic.Anthropic(api_key=api_key)
     system_blocks = (
@@ -351,6 +362,7 @@ def anthropic_chat(api_key, model, system_prompt, user_content, max_tokens, cach
         max_tokens=max_tokens,
         system=system_blocks,
         messages=[{"role": "user", "content": user_content}],
+        extra_body=anthropic_thinking_pin(model),  # thinking_pin_v1
     )
     raw_text = anthropic_response_text(response)
     inp = response.usage.input_tokens
