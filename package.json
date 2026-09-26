@@ -1,6 +1,6 @@
 {
   "name": "love-refactored",
-  "version": "0.1.0-beta.2",
+  "version": "0.1.0-beta.3",
   "description": "Local-first AI companion app: multi-character chat, memory, voice, and creative tools.",
   "main": "server.js",
   "scripts": {
