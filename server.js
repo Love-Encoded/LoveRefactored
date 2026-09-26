@@ -8128,7 +8128,7 @@ async function runWallPassForCompanion(companionKey, options = {}) {
     const user = `THE WALL RIGHT NOW:\n${wallLines || '(the wall is empty)'}\n\nYOUR RECENT DAYS:\n${recent}\n\nYour quiet minute at the Wall. What, if anything, do you do?`;
 
     const llmSettings = getImagePromptWriterSettings(displayName, settings);
-    let raw = await callLLM(sys, [{ role: 'user', content: user }], llmSettings, { maxTokens: 700, temperature: 0.8 });
+    let raw = await callLLM(sys, [{ role: 'user', content: user }], llmSettings, { maxTokens: 1500, temperature: 0.8 });
     raw = String(raw || '').replace(/```json|```/gi, '').trim();
     let decision = null;
     try { decision = JSON.parse(raw); } catch (_e) {
@@ -11280,7 +11280,7 @@ app.post('/v1/chat/completions', async (req, res) => {
   // --- voice-injection-20260914: brief + minis + reflections on the call path ---
   systemStable += vpCtx.getReflectionsStableBlock(companion, card, settings);
   const callBriefText = vpCtx.buildVoiceBriefBlock(companion, settings?.userTimezone);
-  const callMinisText = (vpCtx.readRecentSummaries(companion) || '').trim();
+  const callMinisText = (vpCtx.readRecentSummaries(resolveTanevanCompanionKey(companion) || companion) || '').trim();  // voice_recent_key_v1
   console.log(`[voice-call] injection: brief=${callBriefText.length}ch minis=${callMinisText.length}ch reflections=${card?.reflectionsEnabled === true ? 'on' : 'off'}`);
   const systemPrompt = [systemStable, callBriefText, callMinisText, systemDynamic].filter(s => s && s.trim()).join('\n\n');
 
@@ -11566,7 +11566,7 @@ async function runVoiceResponsePipeline({ companion, userText, rawHistory, setti
   // --- voice-injection-20260914: brief + minis + reflections on the memo path ---
   systemStable += vpCtx.getReflectionsStableBlock(companion, card, settings);
   const memoBriefText = vpCtx.buildVoiceBriefBlock(companion, settings?.userTimezone);
-  const memoMinisText = (vpCtx.readRecentSummaries(companion) || '').trim();
+  const memoMinisText = (vpCtx.readRecentSummaries(resolveTanevanCompanionKey(companion) || companion) || '').trim();  // voice_recent_key_v1
   console.log(`[voice-memo] injection: brief=${memoBriefText.length}ch minis=${memoMinisText.length}ch reflections=${card?.reflectionsEnabled === true ? 'on' : 'off'}`);
   const systemPrompt = [systemStable, memoBriefText, memoMinisText, systemDynamic].filter(s => s && s.trim()).join('\n\n');
 
