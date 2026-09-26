@@ -1284,6 +1284,17 @@ function shouldSendSamplingParams(settings) {
 // Anthropic rejects requests that set both temperature and top_p. Temperature wins;
 // top_p is dropped and we say so once per process so the drop is never silent.
 let _anthropicTopPWarned = false;
+// anthropic_thinking_pin_v2: 5-family models default thinking ON. Older 5s (opus-5, sonnet-5,
+// haiku-5) accept {type:'disabled'}. Opus 5.5 / Fable / Mythos are "always on" and reject it,
+// so for those we send adaptive + effort:low (closest thing to off). Returns fields to spread.
+function anthropicThinkingPin(model) {
+  const m = String(model || '');
+  if (!/(sonnet|opus|haiku|fable|mythos)-5\b/.test(m)) return {};
+  if (/opus-5-5|fable|mythos/.test(m)) {
+    return { thinking: { type: 'adaptive' }, output_config: { effort: 'low' } };
+  }
+  return { thinking: { type: 'disabled' } };
+}
 function anthropicSamplingFields(temperature, s, sendSampling) {
   if (!sendSampling) return {};
   const out = {};
@@ -5865,6 +5876,7 @@ app.post('/chat', async (req, res) => {
         body: JSON.stringify({
           model: companionSettings.anthropic.model || DEFAULT_SONNET_MODEL,
           max_tokens: companionSettings.maxTokens || 1000,
+          ...anthropicThinkingPin(companionSettings.anthropic?.model),  // anthropic_thinking_pin_v2
           ...anthropicSamplingFields(companionSettings.temperature || 0.8, companionSettings, shouldSendSamplingParams(companionSettings)),
           system: anthropicSystem,
           messages: conversationMessages,
@@ -6836,6 +6848,7 @@ async function callLLM(systemPrompt, messages, settings, opts = {}) {
     const sendSampling = shouldSendSamplingParams(settings);
     const anthropicBody = {
       model: settings.anthropic.model || DEFAULT_SONNET_MODEL,
+      ...anthropicThinkingPin(settings?.anthropic?.model),  // anthropic_thinking_pin_v2
       max_tokens: maxTokens,
       ...anthropicSamplingFields(temperature, settings, sendSampling),
       system: systemField,
@@ -7030,6 +7043,7 @@ async function* callLLMStreaming(systemPrompt, messages, settings, opts = {}) {
     const sendSampling = shouldSendSamplingParams(settings);
     const anthropicBody = {
       model: settings.anthropic.model || DEFAULT_SONNET_MODEL,
+      ...anthropicThinkingPin(settings?.anthropic?.model),  // anthropic_thinking_pin_v2
       max_tokens: maxTokens,
       ...anthropicSamplingFields(temperature, settings, sendSampling),
       system: systemField,
