@@ -49,6 +49,14 @@ const {
   buildUserPhotoPromptSystem,
   buildUserPhotoPromptUser
 } = require('./lib/image-prompts');
+const {
+  inferCompanionPronouns,
+  personaPronouns,
+  buildSoloImagePromptSystemSmall,
+  buildSoloImagePromptUserSmall,
+  buildMultiImagePromptSystemSmall,
+  buildMultiImagePromptUserSmall
+} = require('./lib/image-prompts-small');
 const crypto = require('crypto');
 const readline = require('readline');
 function escapeHtmlServer(str) {
@@ -8528,7 +8536,10 @@ app.post('/api/generate-image', async (req, res) => {
     }
   } else if (mode !== 'multi') {
     try {
-      const promptSystemMsg = buildSoloImagePromptSystem({ useLoRA });
+      const useSmallPrompt = imagePromptSettings.provider === 'lmstudio';
+      const promptSystemMsg = useSmallPrompt
+        ? buildSoloImagePromptSystemSmall({ useLoRA })
+        : buildSoloImagePromptSystem({ useLoRA });
 
       const recentMessages = history
         .map(m => `${m.sender === 'user' ? 'User' : companionName}: ${m.text}`)
@@ -8536,8 +8547,9 @@ app.post('/api/generate-image', async (req, res) => {
 
       const locationAnchor = formatLocationAnchor(extractLatestLocation(history));
 
-      const userMsg = buildSoloImagePromptUser({
+      const userMsg = (useSmallPrompt ? buildSoloImagePromptUserSmall : buildSoloImagePromptUser)({
         companionName,
+        card,
         appearance: card.appearance,
         avatarDescription: card.avatarDescription,
         customPrompt,
@@ -8674,24 +8686,38 @@ app.post('/api/generate-image', async (req, res) => {
           nbPrompt = customPrompt;
         } else {
           const appearanceList = [];
+          const pronounsList = [];
           for (const cName of multiCompanions) {
             const cCard = getCompanion(cName);
             appearanceList.push(`${cName}: ${cCard.avatarDescription || cCard.appearance || '(no description)'}`);
+            pronounsList.push(inferCompanionPronouns(cCard));
           }
           if (includeUser) {
             const persona = getPersona();
             appearanceList.push(`${persona.name || 'User'}: ${persona.appearance || persona.backstory || '(no description)'}`);
+            pronounsList.push(personaPronouns(persona));
           }
           const recentMessages = multiRecentMessages;
 
           try {
-            const multiPromptSystem = buildMultiImagePromptSystem();
-            const multiPromptUser = buildMultiImagePromptUser({
-              appearanceList,
-              recentMessages,
-              locationAnchor: multiLocationAnchor,
-              sceneHint
-            });
+            const useSmallMulti = imagePromptSettings.provider === 'lmstudio';
+            const multiPromptSystem = useSmallMulti
+              ? buildMultiImagePromptSystemSmall()
+              : buildMultiImagePromptSystem();
+            const multiPromptUser = useSmallMulti
+              ? buildMultiImagePromptUserSmall({
+                  appearanceList,
+                  pronounsList,
+                  recentMessages,
+                  locationAnchor: multiLocationAnchor,
+                  sceneHint
+                })
+              : buildMultiImagePromptUser({
+                  appearanceList,
+                  recentMessages,
+                  locationAnchor: multiLocationAnchor,
+                  sceneHint
+                });
 
             let generated = await callLLM(multiPromptSystem, [{ role: 'user', content: multiPromptUser }], imagePromptSettings, { maxTokens: 4000, temperature: 0.7, anthropicMeta: promptWriterMeta });
             if (isRepetitiveGarbage(generated)) {
@@ -9064,25 +9090,39 @@ app.post('/api/generate-image', async (req, res) => {
           nbPrompt = customPrompt;
         } else {
           const appearanceList = [];
+          const pronounsList = [];
           for (const cName of multiCompanions) {
             const cCard = getCompanion(cName);
             appearanceList.push(`${cName}: ${cCard.avatarDescription || cCard.appearance || '(no description)'}`);
+            pronounsList.push(inferCompanionPronouns(cCard));
           }
           if (includeUser) {
             const persona = getPersona();
             appearanceList.push(`${persona.name || 'User'}: ${persona.appearance || persona.backstory || '(no description)'}`);
+            pronounsList.push(personaPronouns(persona));
           }
           // Use live group context when available (fallbacks handled above).
           const recentMessages = multiRecentMessages;
 
           try {
-            const multiPromptSystem = buildMultiImagePromptSystem();
-            const multiPromptUser = buildMultiImagePromptUser({
-              appearanceList,
-              recentMessages,
-              locationAnchor: multiLocationAnchor,
-              sceneHint
-            });
+            const useSmallMulti = imagePromptSettings.provider === 'lmstudio';
+            const multiPromptSystem = useSmallMulti
+              ? buildMultiImagePromptSystemSmall()
+              : buildMultiImagePromptSystem();
+            const multiPromptUser = useSmallMulti
+              ? buildMultiImagePromptUserSmall({
+                  appearanceList,
+                  pronounsList,
+                  recentMessages,
+                  locationAnchor: multiLocationAnchor,
+                  sceneHint
+                })
+              : buildMultiImagePromptUser({
+                  appearanceList,
+                  recentMessages,
+                  locationAnchor: multiLocationAnchor,
+                  sceneHint
+                });
 
             let generated = await callLLM(multiPromptSystem, [{ role: 'user', content: multiPromptUser }], imagePromptSettings, { maxTokens: 4000, temperature: 0.7, anthropicMeta: promptWriterMeta });
             if (isRepetitiveGarbage(generated)) {
