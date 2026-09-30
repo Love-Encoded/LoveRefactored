@@ -5863,6 +5863,9 @@ app.post('/chat', async (req, res) => {
     if (activeProvider !== 'lmstudio' && activeProvider !== 'custom' && !String(companionSettings[activeProvider]?.model || '').trim()) {
       throw makeConfigErr('Please choose a model in Settings \u2192 LLM.', 'llm_missing_model');
     }
+    if (activeProvider === 'custom' && !String(companionSettings.providerModel || companionSettings.custom?.model || '').trim()) {
+      throw makeConfigErr('Custom endpoint needs a model name (e.g. llama-3.3-70b for Venice). Add it in Settings \u2192 LLM \u2192 Model.', 'llm_missing_model');
+    }
 
     if (activeProvider === 'anthropic') {
       // === ANTHROPIC / CLAUDE ===
@@ -5979,9 +5982,14 @@ app.post('/chat', async (req, res) => {
         signal: chatAbort ? chatAbort.signal : undefined
       });
 
-      const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error.message || 'API error');
+      const rawText = await response.text();
+      let data = null;
+      try { data = JSON.parse(rawText); } catch (_) {}
+      if (!response.ok || !data || data.error) {
+        const e = data && data.error;
+        const msg = (e && (e.message || (typeof e === 'string' ? e : JSON.stringify(e))))
+          || rawText.slice(0, 300) || `HTTP ${response.status}`;
+        throw new Error(`${companionSettings.provider} endpoint (${apiUrl}) returned ${response.status}: ${msg}`);
       }
       reply = data.choices?.[0]?.message?.content || '(No response from AI)';
     }
@@ -6758,6 +6766,8 @@ function customChatCompletionsUrl(raw) {
   else if (/^:\d{2,5}$/.test(s)) s = `http://127.0.0.1${s}`;
   if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(s)) s = 'http://' + s;
   s = s.replace(/\/+$/, '');
+  // Venice's OpenAI-compatible API lives under /api — add it if the user left it off.
+  if (/^https?:\/\/api\.venice\.ai$/i.test(s)) s += '/api';
   if (/\/chat\/completions$/i.test(s)) return s;
   if (/\/v\d+$/i.test(s)) return `${s}/chat/completions`;
   return `${s}/v1/chat/completions`;
@@ -6799,6 +6809,9 @@ async function callLLM(systemPrompt, messages, settings, opts = {}) {
   }
   if (provider !== 'lmstudio' && provider !== 'custom' && !String(settings?.[provider]?.model || '').trim()) {
     throw makeLlmConfigError('Please choose a model in Settings \u2192 LLM.', 'llm_missing_model');
+  }
+  if (provider === 'custom' && !String(settings?.providerModel || settings?.custom?.model || '').trim()) {
+    throw makeLlmConfigError('Custom endpoint needs a model name (e.g. llama-3.3-70b for Venice). Add it in Settings \u2192 LLM \u2192 Model.', 'llm_missing_model');
   }
 
   // Sanitize: strip stale image blocks from history messages to prevent format mismatches.
@@ -6970,8 +6983,15 @@ async function callLLM(systemPrompt, messages, settings, opts = {}) {
   wireAbortSignal(controller, opts.abortSignal, 'client aborted before LLM call');
   const response = await fetch(apiUrl, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
   clearTimeout(fetchTimeout);
-  const data = await response.json();
-  if (data.error) throw new Error(data.error.message || 'API error');
+  const rawText = await response.text();
+  let data = null;
+  try { data = JSON.parse(rawText); } catch (_) {}
+  if (!response.ok || !data || data.error) {
+    const e = data && data.error;
+    const msg = (e && (e.message || (typeof e === 'string' ? e : JSON.stringify(e))))
+      || rawText.slice(0, 300) || `HTTP ${response.status}`;
+    throw new Error(`${provider} endpoint (${apiUrl}) returned ${response.status}: ${msg}`);
+  }
 
   if (provider === 'openrouter') {
     const replyText = data.choices?.[0]?.message?.content || '';
@@ -7010,6 +7030,8 @@ async function* callLLMStreaming(systemPrompt, messages, settings, opts = {}) {
     throw makeLlmConfigError('OpenRouter provider selected but API key is missing. Add it in Settings.', 'llm_missing_api_key');
   if (provider === 'custom' && !String(settings?.custom?.url || '').trim())
     throw makeLlmConfigError('Custom provider selected but API URL is missing. Add it in Settings.', 'llm_missing_endpoint');
+  if (provider === 'custom' && !String(settings?.custom?.model || '').trim())
+    throw makeLlmConfigError('Custom endpoint needs a model name (e.g. llama-3.3-70b for Venice). Add it in Settings \u2192 LLM \u2192 Model.', 'llm_missing_model');
 
   const preserveVisionIdx = opts.preserveVisionMessageIndex;
   for (let i = 0; i < messages.length; i++) {

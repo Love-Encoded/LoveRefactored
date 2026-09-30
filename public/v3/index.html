@@ -3416,7 +3416,7 @@ html.kiosk #kiosk-eye.on{background:var(--live);opacity:1;box-shadow:0 0 10px va
 
             <div class="field" id="pv-url-field">
               <label for="pv-url">Server URL</label>
-              <input class="inp" id="pv-url" placeholder="http://127.0.0.1:1234">
+              <input class="inp" id="pv-url" placeholder="http://127.0.0.1:1234 — or https://api.venice.ai/api">
             </div>
             <div class="field">
               <label for="pv-key">API Key</label>
@@ -3424,8 +3424,8 @@ html.kiosk #kiosk-eye.on{background:var(--live);opacity:1;box-shadow:0 0 10px va
             </div>
             <div class="field">
               <label for="pv-model">Model</label>
-              <input class="inp" id="pv-model" list="pv-favs" value="" placeholder="Provider default">
-              <p class="hint">Pick a suggestion or type any custom model string (saved as-is). Leave blank for provider default.</p>
+              <input class="inp" id="pv-model" list="pv-favs" value="" placeholder="e.g. llama-3.3-70b">
+              <p class="hint">Pick a suggestion or type any model string (saved as-is). LM Studio can be left blank; Venice and other custom endpoints <b>require</b> a model name.</p>
             <datalist id="pv-favs"></datalist>
               <div class="inline-row" style="margin-top:8px"><button class="btn ghost tiny" id="pv-fav">☆ Favourite this model</button><span class="favchips" id="pv-favchips"></span></div></div>
 
