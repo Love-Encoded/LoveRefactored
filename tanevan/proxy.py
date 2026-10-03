@@ -17,8 +17,8 @@ What it does:
 """
 
 from flask import Flask, request, jsonify
-from memory_db import MemoryDB, AUDIT_RETENTION_DAYS
-from pipeline import process_buffer, process_session
+from memory_db import MemoryDB, AUDIT_RETENTION_DAYS, normalize_conversation_timestamp
+from pipeline import process_buffer, process_session, _split_buffer_into_sessions, _split_session_by_tokens
 from companion_resolve import (
     resolve_default_companion_name,
     resolve_tanevan_companion_key,
@@ -683,23 +683,42 @@ def _log_activity(job_id, event_type, data=None):
             job["activity"].append(entry)
 
 
-def _run_import_job(job_id, normalized, companion, user_name=None):
-    """Background worker that processes import chunks and updates job state."""
+def _plan_import_sessions(normalized, chunk_size=100, min_messages=4):
+    """Cut an import into sessions the same way the live pipeline does:
+      1. split on time gaps (TANEVAN_SESSION_GAP_SECONDS, default 2h),
+      2. cap each session by tokens (TANEVAN_SESSION_TOKEN_CAP),
+      3. never exceed chunk_size messages per session — keeps imports with
+         no usable timestamps at the same granularity as before.
+    Guarantees no message loss."""
+    sessions = _split_buffer_into_sessions(normalized, min_messages=min_messages)
+    capped = []
+    for s in sessions:
+        capped.extend(_split_session_by_tokens(s, min_messages=min_messages))
+    planned = []
+    for s in capped:
+        pieces = [s[i:i + chunk_size] for i in range(0, len(s), chunk_size)]
+        if len(pieces) > 1 and len(pieces[-1]) < min_messages:
+            pieces[-2].extend(pieces.pop())
+        planned.extend(pieces)
+    total_in, total_out = len(normalized), sum(len(p) for p in planned)
+    if total_in != total_out:
+        raise RuntimeError(f"_plan_import_sessions message loss: {total_in} in vs {total_out} out")
+    return planned
+
+
+def _run_import_job(job_id, sessions, companion, user_name=None):
+    """Background worker that processes import sessions and updates job state."""
     try:
-        chunk_size = 100
         db = get_db(companion)
 
         def on_activity(event_type, data=None):
             _log_activity(job_id, event_type, data)
 
-        for i in range(0, len(normalized), chunk_size):
-            chunk = normalized[i:i + chunk_size]
-            if len(chunk) < 4:
-                continue
-
-            chunk_num = i // chunk_size + 1
-            print(f"   Processing chunk {chunk_num}: messages {i + 1}-{i + len(chunk)}")
-            on_activity("chunk_start", {"chunk": chunk_num, "messages": len(chunk)})
+        for idx, chunk in enumerate(sessions):
+            chunk_num = idx + 1
+            starts = chunk[0].get("timestamp") or "no timestamp"
+            print(f"   Processing session {chunk_num}/{len(sessions)}: {len(chunk)} messages, starts {starts}")
+            on_activity("chunk_start", {"chunk": chunk_num, "messages": len(chunk), "starts": starts})
             try:
                 result = process_session(
                     chunk,
@@ -809,15 +828,15 @@ def import_chat():
             normalized.append({
                 "role": role,
                 "content": content.strip(),
-                "timestamp": msg.get("timestamp", msg.get("send_date", ""))
+                "timestamp": normalize_conversation_timestamp(msg.get("timestamp", msg.get("send_date", ""))) or ""
             })
 
     if len(normalized) < 4:
         return jsonify({"error": f"Only {len(normalized)} valid user/assistant messages found after parsing"}), 400
 
-    # Count chunks upfront
-    chunk_size = 100
-    total_chunks = sum(1 for i in range(0, len(normalized), chunk_size) if len(normalized[i:i + chunk_size]) >= 4)
+    # Plan sessions upfront (time-gap split, token cap, 100-message ceiling)
+    sessions = _plan_import_sessions(normalized)
+    total_chunks = len(sessions)
 
     if not _try_start_pipeline(companion):
         return jsonify({
@@ -843,7 +862,7 @@ def import_chat():
 
     thread = threading.Thread(
         target=_run_import_job,
-        args=(job_id, normalized, companion, u_imp),
+        args=(job_id, sessions, companion, u_imp),
         daemon=True,
     )
     thread.start()
