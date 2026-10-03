@@ -3316,7 +3316,8 @@ require('./routes/history-chat')(app, {
   searchChatLog,
   listChatLogSessions,
   listChatLogConversations,
-  countFavoritedByConversation
+  countFavoritedByConversation,
+  replaceLastTanevanAssistant
 });
 
 function getCompanion(name) {
@@ -4627,6 +4628,30 @@ function normalizeTanevanTimestamp(ts) {
   return isNaN(d.getTime()) ? s : d.toISOString();
 }
 
+/* reroll_sync_v1: a reroll replaces what they said — Tanevan's buffer should hold the
+   version that is showing, not every draft. Replaces the last assistant line; Tanevan
+   appends instead if the buffer was just flushed. Fire-and-forget like bufferToTanevan. */
+async function replaceLastTanevanAssistant(companion, content, timestamp) {
+  const settings = getSettings();
+  if (!settings.memory?.enabled || !content || !String(content).trim()) return;
+  try {
+    const payload = { role: 'assistant', content, companion: resolveTanevanCompanionKey(companion) };
+    const ts = normalizeTanevanTimestamp(timestamp);
+    if (ts) payload.timestamp = ts;
+    const r = await fetch(`${getTanevanBaseUrl(settings)}/buffer/replace-last`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      timeout: 2000
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { console.warn(`🔁 tanevan replace-last refused for ${companion}: ${d.error || r.status}`); return; }
+    console.log(`🔁 tanevan: ${d.replaced ? 'replaced last assistant line' : 'no assistant line in buffer — appended'} for ${companion} (buffer ${d.buffer_count})`);
+  } catch (e) {
+    console.warn(`🔁 tanevan replace-last failed for ${companion}: ${e.message}`);
+  }
+}
+
 async function bufferToTanevan(role, content, settings, companion, timestamp) {
   if (!settings.memory?.enabled) return;
   const t0 = Date.now();
@@ -5778,9 +5803,11 @@ app.post('/chat', async (req, res) => {
   console.log(systemPromptForOpenAI);
   console.log('📋 ===== END SYSTEM PROMPT =====\n');
 
-  // Buffer the user message to Tanevan
-  bufferToTanevan('user', userMessage, settings, companion, userMessageTimestamp || new Date().toISOString());
-  if (req.userRole === 'guest') pushGuestFeed({ companion, username: req.session.username, text: userMessage, sender: 'user' });
+  // Buffer the user message to Tanevan (skip on reroll — already buffered on the original send)
+  if (req.body.isReroll !== true) {
+    bufferToTanevan('user', userMessage, settings, companion, userMessageTimestamp || new Date().toISOString());
+  }
+  if (req.userRole === 'guest' && req.body.isReroll !== true) pushGuestFeed({ companion, username: req.session.username, text: userMessage, sender: 'user' });
   console.log('📨 Sending ' + conversationMessages.length + ' messages to AI:', JSON.stringify(conversationMessages.slice(-3)));
 
   let llmLog = null;
@@ -6409,7 +6436,8 @@ app.post('/chat', async (req, res) => {
 
     // Buffer the AI response to Tanevan (clean, without react tag)
     const replyTimestamp = new Date().toISOString();
-    bufferToTanevan('assistant', reply, settings, companion, replyTimestamp);
+    if (req.body.isReroll === true) await replaceLastTanevanAssistant(companion, reply, replyTimestamp);   /* reroll_sync_v1: finish before the response, so a version flip can't be overwritten by this write landing late */
+    else bufferToTanevan('assistant', reply, settings, companion, replyTimestamp);
 
   if (req.userRole === 'guest') pushGuestFeed({ companion, username: req.session.username, text: reply, sender: 'companion' });
     // Evaluate mood shift: per-companion override (character card) or global Settings (0 = off, 1 = every message, etc.)

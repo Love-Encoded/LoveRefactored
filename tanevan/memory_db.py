@@ -667,6 +667,22 @@ class MemoryDB:
         )
         self.db.commit()
 
+    def replace_last_buffer_message(self, role, content, timestamp=None):
+        """reroll_sync_v1: overwrite the most recent buffered message with this role.
+        Returns the row id that was replaced, or None if there was none to replace."""
+        row = self.db.execute(
+            "SELECT id FROM conversation_buffer WHERE role = ? ORDER BY id DESC LIMIT 1", (role,)
+        ).fetchone()
+        if not row:
+            return None
+        ts = normalize_conversation_timestamp(timestamp) or ""
+        if ts:
+            self.db.execute("UPDATE conversation_buffer SET content = ?, timestamp = ? WHERE id = ?", (content, ts, row["id"]))
+        else:
+            self.db.execute("UPDATE conversation_buffer SET content = ? WHERE id = ?", (content, row["id"]))
+        self.db.commit()
+        return row["id"]
+
     def get_buffer(self):
         """Get all messages in the current buffer."""
         rows = self.db.execute(

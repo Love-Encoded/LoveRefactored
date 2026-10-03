@@ -596,6 +596,31 @@ def models():
 
 
 
+@app.route('/buffer/replace-last', methods=['POST'])
+def buffer_replace_last():
+    """reroll_sync_v1: a reroll (or picking a different reroll) replaces what the companion
+    said — so the buffer should hold that version, not every draft. Overwrites the most
+    recent buffered message with this role. If there is none (buffer just flushed), appends
+    instead so the line is not lost. Never triggers the pipeline — the count does not change."""
+    data = request.json or {}
+    role = data.get("role")
+    content = data.get("content")
+    timestamp = data.get("timestamp")
+    companion = _effective_companion(data.get("companion"))
+    if not companion:
+        return jsonify({"error": _NO_COMPANION_MSG}), 400
+    if role not in ("user", "assistant") or not content:
+        return jsonify({"error": "Need role (user/assistant) and content"}), 400
+    db = get_db(companion)
+    replaced_id = db.replace_last_buffer_message(role, content, timestamp)
+    if replaced_id is None:
+        db.buffer_message(role, content, timestamp)
+        print(f"🔁 buffer/replace-last for {companion}: no {role} line in buffer — appended instead")
+        return jsonify({"replaced": False, "appended": True, "buffer_count": db.get_buffer_count()})
+    print(f"🔁 buffer/replace-last for {companion}: replaced {role} line #{replaced_id}")
+    return jsonify({"replaced": True, "appended": False, "id": replaced_id, "buffer_count": db.get_buffer_count()})
+
+
 @app.route('/buffer', methods=['POST'])
 def buffer_message():
     """Direct buffer endpoint — lets external servers send messages to the buffer."""

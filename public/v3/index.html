@@ -179,6 +179,12 @@ time{font-family:var(--mono);font-size:10px;color:var(--ink-3);
   background:color-mix(in oklab,var(--me) 5%,var(--lamp))}
 .bubble .lbl{color:var(--who);margin-bottom:5px;display:block;opacity:.9}
 .msg.me .bubble .lbl{color:var(--me);text-align:right}
+.bubble .alts{display:flex;align-items:center;gap:2px;margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--ink-3);user-select:none}
+.bubble .alts button{min-width:22px;height:20px;padding:0 5px;border-radius:var(--r-full);color:var(--ink-3);display:grid;place-items:center}
+.bubble .alts button:hover{background:var(--lamp-hi);color:var(--ink-2)}
+.bubble .alts button.on{color:var(--who);font-weight:700}
+.bubble .alts button[disabled]{opacity:.3;pointer-events:none}
+.bubble .alts .sep{opacity:.5}
 .bubble p{color:var(--ink);font-size:15px;line-height:1.6;overflow-wrap:anywhere}
 .bubble p+p{margin-top:.65em}
 .bubble em{color:var(--ink-em);font-style:italic}
@@ -4831,6 +4837,26 @@ function attHTML(list){
       '<svg viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 1.8h4.2L11 4.6V12H4z"/><path d="M8.2 1.8v2.8H11"/></svg>'+escT(a.filename||'file')+'</a>';
   }).join('')+'</div>';
 }
+/* reroll_alts_v1: ‹ 1 · 2 · 3 › under a companion reply that has been rerolled — pick the one you want them to have said */
+function altsHTML(m, mine){
+  if(mine||!m||!Array.isArray(m.alts)||m.alts.length<2) return '';
+  var k=Number.isInteger(m.altIndex)?m.altIndex:m.alts.length-1;
+  var nums=m.alts.map(function(_,i){ return '<button data-alt="'+i+'" class="'+(i===k?'on':'')+'" title="Version '+(i+1)+'">'+(i+1)+'</button>'; }).join('<span class="sep">·</span>');
+  return '<div class="alts" title="Rerolls — tap a number to keep that one">'+
+    '<button data-alt="prev"'+(k<=0?' disabled':'')+' title="Previous version">‹</button>'+nums+
+    '<button data-alt="next"'+(k>=m.alts.length-1?' disabled':'')+' title="Next version">›</button></div>';
+}
+document.addEventListener('click',function(e){
+  var b=e.target.closest('#thread .alts button[data-alt]'); if(!b||!cur||sending) return;
+  var art=b.closest('.msg'); var i=parseInt(art&&art.dataset.i,10); if(!isFinite(i)) return;
+  var name=cur.name, l=THREADS[name]||[], m=l[i]; if(!m||!Array.isArray(m.alts)||m.alts.length<2) return;
+  var k=Number.isInteger(m.altIndex)?m.altIndex:m.alts.length-1;
+  var v=b.dataset.alt; var n = v==='prev'?k-1 : v==='next'?k+1 : parseInt(v,10);
+  if(!isFinite(n)||n<0||n>=m.alts.length||n===k) return;
+  m.altIndex=n; m.text=m.alts[n]; m.gifs={};
+  drawChat();
+  quiet(jsend('PUT','/api/history/'+encodeURIComponent(name)+'/message',{index:LR.absIndex(name,i),msgId:m.msgId,altIndex:n}),null);
+});
 function msgHTML(m,c){
   if(m&&m.type){
     return '<div class="sysline">'+escT(m.text||m.type)+'</div>';
@@ -4855,6 +4881,7 @@ function msgHTML(m,c){
       bubbleHTML(mine?myName():c.name, text?fmtBody(text):[], img)+
       attHTML(m.attachments)+
       reactHTML(m.reactions)+
+      altsHTML(m, mine)+
     '</div>';
   return el;
 }
@@ -4988,6 +5015,17 @@ function postChat(name, body, reqId){
       else if(!res.reply&&!res.photoUrl){ LR.toast('Companion returned an empty reply — try again',{kind:'warn'}); }
       if(res.memoryWarning) LR.toast(String(res.memoryWarning),{kind:'warn',key:'memwarn'});
       if(res.reply) l.push({sender:name,text:res.reply,timestamp:new Date().toISOString(),msgId:'req_'+reqId+'_reply',memories:Array.isArray(res.memories)?res.memories:[]});
+      /* reroll_alts_v1: a reroll keeps every earlier version on the new row.
+         The reply's own history broadcast is queued while sending is true, and
+         releasing it reloads the thread — so the alt save has to finish first,
+         or that reload fetches the row before alts exist and the pager vanishes. */
+      var altSave=null;
+      if(res.reply && LR._pendingAlts && LR._pendingAlts.name===name){
+        var row=l[l.length-1], set=LR._pendingAlts.alts.filter(function(a){ return a!==res.reply; }).concat([res.reply]).slice(-12);
+        row.alts=set; row.altIndex=set.length-1;
+        altSave=quiet(jsend('PUT','/api/history/'+encodeURIComponent(name)+'/message',{msgId:row.msgId,alts:row.alts,altIndex:row.altIndex}),null);
+      }
+      LR._pendingAlts=null;
       var pics = Array.isArray(res.photoUrls)&&res.photoUrls.length ? res.photoUrls : (res.photoUrl?[res.photoUrl]:[]);
       pics.forEach(function(u){ l.push({sender:name,text:'__IMAGE__'+u,timestamp:new Date().toISOString()}); });
       /* a companion can react to what you said instead of (or as well as) replying */
@@ -5003,9 +5041,11 @@ function postChat(name, body, reqId){
       if(res.journalEntry){ var b=$('#thread'); if(b&&cur&&cur.name===name){ b.insertAdjacentHTML('beforeend','<div class="sysline">Saved to the journal</div>'); b.scrollTop=b.scrollHeight; } }
       var hc=HOUSE.filter(function(x){return x.name===name;})[0];
       if(hc&&res.reply){ hc.last=String(res.reply).slice(0,140); drawHouse(); }
+      if(altSave) return altSave.then(function(){ setSending(false); });
       setSending(false);
     })
     .catch(function(err){
+      LR._pendingAlts=null;
       stopTyping();
       var b=$('#thread');
       if(b&&cur&&cur.name===name){
@@ -12187,7 +12227,7 @@ function editMsg(group,i){
     if(!v||v.text===m.text) return;
     var p=group ? G.jsend('PUT','/api/groups/'+enc(g.id)+'/history/message',{index:i,text:v.text})
                 : G.jsend('PUT','/api/history/'+enc(c.name)+'/message',{index:G.absIndex(c.name,i),msgId:m.msgId,text:v.text});
-    p.then(function(){ m.text=v.text; if(group) G.drawGroupThread(g); else G.drawChat(); G.ok('Edited.'); })
+    p.then(function(){ m.text=v.text; if(Array.isArray(m.alts)&&Number.isInteger(m.altIndex)&&m.altIndex>=0&&m.altIndex<m.alts.length) m.alts[m.altIndex]=v.text; if(group) G.drawGroupThread(g); else G.drawChat(); G.ok('Edited.'); })
      .catch(function(e){ G.fail('Could not save edit',e); });
   });
 }
@@ -12218,6 +12258,10 @@ function reroll(group,i,note){
   var lastUser=-1; for(var k=i;k>=0;k--){ if(list[k].sender==='user'){ lastUser=k; break; } }
   if(lastUser<0){ G.toast('Nothing to reroll from — no message of yours before this one.',{kind:'warn'}); return; }
   var rejected=String(m.text||'').indexOf('__IMAGE__')===0?'':String(m.text||'');
+  /* reroll_alts_v1: hand the existing versions to postChat so the new reply joins them */
+  var prevAlts=(Array.isArray(m.alts)&&m.alts.length?m.alts.slice():[]);
+  if(rejected&&prevAlts.indexOf(rejected)<0) prevAlts.push(rejected);
+  G._pendingAlts={name:name, alts:prevAlts};
   /* hold the thread: the truncate fires a live-sync "history updated" that would otherwise reload it under us */
   G.setSending(true);
   G.jsend('POST','/api/history/'+enc(name)+'/truncate',{fromIndex:G.absIndex(name,i)}).then(function(){
@@ -12228,7 +12272,7 @@ function reroll(group,i,note){
     var body={message:u.text, companion:name, history:ah.history, historyAnchor:ah.anchor, isReroll:true, rejectedDraft:rejected, rerollNote:note||'', requestId:reqId};
     if(Array.isArray(u.attachments)&&u.attachments.length) body.attachments=u.attachments;
     G.postChat(name, body, reqId);
-  }).catch(function(e){ G.setSending(false); G.fail('Could not reroll — try again',e); });
+  }).catch(function(e){ G._pendingAlts=null; G.setSending(false); G.fail('Could not reroll — try again',e); });
 }
 function rerollGroup(i,note){
   var g=G.currentGroup(); if(!g) return; var list=g.thread||[]; var m=list[i]; if(!m||m.sender==='user') return;

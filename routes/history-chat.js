@@ -34,7 +34,8 @@ function registerHistoryChatRoutes(app, deps) {
     searchChatLog,
     listChatLogSessions,
     listChatLogConversations,
-    countFavoritedByConversation
+    countFavoritedByConversation,
+    replaceLastTanevanAssistant
   } = deps;
 
   // === PERMANENT CHAT LOG ENDPOINTS ===
@@ -537,15 +538,34 @@ function registerHistoryChatRoutes(app, deps) {
 
   app.put('/api/history/:name/message', (req, res) => {
     const name = req.params.name;
-    const index = Number.parseInt(req.body?.index, 10);
+    let index = Number.parseInt(req.body?.index, 10);
     const text = typeof req.body?.text === 'string' ? req.body.text : null;
     const favorited = typeof req.body?.favorited === 'boolean' ? req.body.favorited : undefined;
     const messages = getChatHistory(name);
+    // The reroll save addresses the new row by msgId. A stale index is corrected the same way.
+    const bodyMsgId = typeof req.body?.msgId === 'string' ? req.body.msgId : null;
+    if (bodyMsgId) {
+      const byId = messages.findIndex(m => m && m.msgId === bodyMsgId);
+      if (byId === -1) {
+        return res.status(404).json({ error: 'msgId not found', msgId: bodyMsgId });
+      }
+      if (Number.isFinite(index) && index !== byId) {
+        console.warn(`🧾 edit: stale index ${index} corrected to ${byId} via msgId ${bodyMsgId} (${name})`);
+      }
+      index = byId;
+    }
     if (!Number.isFinite(index) || index < 0 || index >= messages.length) {
       return res.status(400).json({ error: 'Invalid index' });
     }
-    if (text == null && favorited === undefined) {
-      return res.status(400).json({ error: 'text or favorited is required' });
+    // reroll_alts_v1: a companion message can carry every reroll it has had.
+    //   alts     — array of strings, the full set (the live one included)
+    //   altIndex — which of them is showing; the server swaps text to match, no edit log
+    const alts = Array.isArray(req.body?.alts)
+      ? req.body.alts.filter(a => typeof a === 'string' && a.trim()).slice(0, 12).map(a => a.slice(0, 20000))
+      : null;
+    const altIndex = Number.isInteger(req.body?.altIndex) ? req.body.altIndex : null;
+    if (text == null && favorited === undefined && !alts && altIndex == null) {
+      return res.status(400).json({ error: 'text, favorited, alts or altIndex is required' });
     }
     const original = messages[index];
     const patch = {};
@@ -563,11 +583,29 @@ function registerHistoryChatRoutes(app, deps) {
     if (favorited !== undefined) {
       patch.favorited = favorited;
     }
+    if (alts) patch.alts = alts;
+    const liveAlts = patch.alts || (Array.isArray(original.alts) ? original.alts : null);
+    let flippedTo = null;
+    if (altIndex != null && liveAlts && altIndex >= 0 && altIndex < liveAlts.length) {
+      patch.altIndex = altIndex;
+      if (text == null) { patch.text = liveAlts[altIndex]; patch.gifs = {}; flippedTo = liveAlts[altIndex]; }
+    }
+    // reroll_sync_v1: only the LAST companion line can still be in Tanevan's buffer as "the last assistant line".
+    // Flipping an older message leaves Tanevan alone — that line has long since been summarized.
+    let lastCompanionIdx = -1;
+    for (let k = messages.length - 1; k >= 0; k--) { if (messages[k] && messages[k].sender !== 'user' && !String(messages[k].text || '').startsWith('__IMAGE__')) { lastCompanionIdx = k; break; } }
+    const showingNow = flippedTo != null ? flippedTo : (text != null ? text : null);
+    const syncTanevan = showingNow != null && index === lastCompanionIdx && typeof replaceLastTanevanAssistant === 'function';
+    // a hand edit of the showing alternate replaces it in the set, so flipping away and back keeps the edit
+    if (text != null && liveAlts && Number.isInteger(original.altIndex) && original.altIndex >= 0 && original.altIndex < liveAlts.length) {
+      const edited = liveAlts.slice(); edited[original.altIndex] = text; patch.alts = edited;
+    }
     const key = historyConversationKey(name);
     if (!updateChatMessageAtIndex(key, index, patch)) {
       return res.status(500).json({ error: 'Edit failed' });
     }
     broadcastHistoryUpdated(name, countChatMessages(key));
+    if (syncTanevan) replaceLastTanevanAssistant(name, showingNow, original.timestamp);
     res.json({ success: true });
   });
 }
