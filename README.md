@@ -221,8 +221,8 @@ Send to Telegram (per companion) delivers proactive messages through that compan
 
 Per-companion overrides; empty inherits Settings.
 
-- Provider, model (combobox + per-provider **favourites**), optional API key and custom base URL (do **not** include `/v1`).
-- Extended reasoning, temperature override, max tokens for chat and for Creative Studio.
+- Provider, model (combobox + per-provider **favourites**), optional API key and custom base URL (do **not** include `/v1`). A custom endpoint **requires** a model name; LM Studio may be left blank.
+- Temperature override, max tokens for chat and for Creative Studio. The **Extended reasoning** toggle is saved on the card; chat does not read it. Claude 5-family thinking is pinned instead (see Settings, LLM providers).
 - Image **method**: auto / trained LoRA / reference image / description only. LoRA path + trigger (ComfyUI), LoRA scale/id (Replicate), PuLID reference path, **fal LoRA URL**, up to **four reference face photos**.
 - **Anam avatar ID** for video calls.
 - Voice memos / voice calls provider overrides; Fish voice ID, ElevenLabs **voice ID** and **agent ID** (agent ID required for live calls and Anam), Chatterbox/NeuTTS reference clip.
@@ -269,6 +269,10 @@ Tabbed stage, same left-rail pattern as the card.
 | | **Quotes** | Household one-liners for empty states and optional tab-title marquee (never during a call). |
 
 **LLM providers:** LM Studio (local OpenAI-compatible), Anthropic (Claude — large system prompts use **prompt caching**), OpenAI (custom base URL allowed), OpenRouter, or any OpenAI-compatible custom endpoint. Global defaults plus per-companion overrides. Only parameters the chosen provider accepts are sent; **`sendSamplingParams: false`** omits sampling fields entirely (max tokens and stop sequences are always sent).
+
+A **custom** endpoint requires a model name. Paste the base URL without `/v1`; a bare port is treated as `http://127.0.0.1:<port>`, and an existing `/v1` or `/chat/completions` is not doubled. Venice’s OpenAI-compatible API lives under `/api`: `https://api.venice.ai` is rewritten to `https://api.venice.ai/api` before `/v1/chat/completions` is appended (`https://api.venice.ai/api` already works). A failed OpenAI-compatible call surfaces the HTTP status and the provider’s error text (first 300 characters).
+
+**Claude 5-family** models on the direct Anthropic API — chat and the Tanevan pipeline — do not use the provider’s default thinking. Sonnet 5, Opus 5, and Haiku 5 are sent `thinking: { type: "disabled" }`. Opus 5.5, Fable, and Mythos reject that, so they are sent adaptive thinking at effort **low**. Thinking blocks are dropped before the text is used. Qwen3 and Qwen4 model ids on OpenAI-compatible calls are sent `reasoning: { effort: "none" }` so a thinking-on default does not come back as empty content.
 
 ### Persona
 
@@ -326,7 +330,7 @@ The app separates **async voice memos** from **live voice calls**. Memos default
 3. Same LLM routing as text chat (custom prompt, lore, Tanevan, tools).
 4. Optional TTS: Fish, Chatterbox, NeuTTS (local `voice/` on **5050**), or ElevenLabs. Failure never blocks the text reply.
 
-**Live calls** (phone button): ElevenLabs agent ID on the card, or Fish/Pipecat. After connect, **`/api/voice-call/context`** sends lore + memory + persona as a `contextual_update`. Transcripts save as a “📞 Voice call” system line plus `[voice call] …` turns and buffer to Tanevan.
+**Live calls** (phone button): ElevenLabs agent ID on the card, or Fish/Pipecat. After connect, **`/api/voice-call/context`** sends lore + memory + persona as a `contextual_update`. The call and voice-memo prompts also include the life brief and scene notes. Scene-note lookup uses the companion’s display name, so a slug still finds `data/recent/<name>/`. Transcripts save as a “📞 Voice call” system line plus `[voice call] …` turns and buffer to Tanevan.
 
 **Video (Anam):** same ElevenLabs agent; **`POST /api/anam/session`**. Optional kiosk-style camera framing. Transcripts use the same save-transcript path.
 
@@ -338,6 +342,7 @@ Local TTS is **not** started by `./start.sh`. See **`voice/README.md`**.
 - **fal.ai** — cloud Flux / Flux LoRA (`falLoraUrl` on the card); Kling image-to-video.
 - **Replicate** — Flux / Flux LoRA, Ideogram Character, Nano Banana-style multi-person shots from face refs; Kling video on the same account.
 - LLM-authored scene prompts from recent chat (or the gallery scene hint), written for portrait-style generators (Nano Banana Pro / Flux). DALL·E / custom HTTP can be stored in Settings; **end-to-end generation is wired for ComfyUI, fal.ai, and Replicate**.
+- When the **image prompt writer** is **LM Studio**, solo and group shots use the small-model templates in **`lib/image-prompts-small.js`**: slot-based, no prose example to copy, explicit pronouns per person, clothing priority (current outfit, then the scene, then the default). Every other prompt-writer provider keeps the full prompts in **`lib/image-prompts.js`**.
 
 ### Spotify
 
@@ -399,7 +404,7 @@ Love Refactored (Node :3000)  --POST /buffer-->  Flask proxy (:5001)
 Each pass is prefixed with **Memory Lens** and a **character-card voice reference** (personality + example messages) when configured. A separate **reflection** job writes looking-back documents on a schedule (injected into chat only when the card has `reflectionsEnabled: true`; horizons from `reflectionHorizons`, default `daily,weekly`). After a live or manual flush writes a **session summary**, Tanevan may spawn **`brief_sidecar.py`** to refresh that companion’s life brief (skipped during bulk import, and skipped for locked briefs unless regenerated).
 
 1. The app `POST`s each turn to `/buffer` (including voice-call transcripts and video-attachment summaries).
-2. Messages sit in `conversation_buffer` until the count hits **`TANEVAN_SUMMARIZE_EVERY`** (default **100**), you flush, or the proxy shuts down. Auto-flush and shutdown require **≥4** messages; a manual flush from the app can run on **1**. Long buffers are split by idle gap (default **2 hours**) and a token cap (default **12k**) before each session is summarised.
+2. Messages sit in `conversation_buffer` until the count hits **`TANEVAN_SUMMARIZE_EVERY`** (default **100**), you flush, or the proxy shuts down. Auto-flush and shutdown require **≥4** messages; a manual flush from the app can run on **1**. Long buffers are split by idle gap (default **2 hours**) and a token cap (default **12k**) before each session is summarised. After **3** consecutive failed automatic runs for one companion (`TANEVAN_PIPELINE_MAX_FAILURES`), auto-flush **pauses** for that companion and the buffer is held. A manual flush, or restarting Tanevan, re-arms it. `POST /buffer` reports `pipeline_paused`.
 3. **Summarizer** writes a structured session summary from the companion's first person.
 4. **Extractor** splits that into **atomic**, self-contained memories (one fact/event per row) that still make sense months later with no original transcript — category, confidence, priority, **entities**, and **emotional intensity** (0–10, stored).
 5. **Updater** compares each new memory to near neighbours: add, **versioned update** (new row + `superseded_by` on the old one; in-place rewrite only if `TANEVAN_VERSIONED_UPDATE=0`), merge, or skip. Reinforcement raises confidence. A **merge guard** refuses blobs that would swallow protected/pinned rows or grow past a size cap — refused incoming text is saved as its **own** memory, never dropped.
@@ -502,7 +507,7 @@ Node caches the injection block and refreshes it in the background (not on the s
 
 ### Pipeline models
 
-Settings → Memory Pipeline (or `~/tanevan-data/pipeline_config.json`): global provider **Anthropic / OpenAI / OpenRouter / local / hybrid**, with per-step models for **summarizer, extractor, updater, reflection, and brief**. Keys can live in that file; otherwise **`ANTHROPIC_API_KEY`** (exported by `start.sh` from `data/settings.json`), **`OPENAI_API_KEY`** / **`OPENROUTER_API_KEY`**, or Love Refactored settings. Pipeline steps have **no hardcoded model IDs** — configure before the first run. Exception: if **`BRIEF_MODEL_KEY`** is set (legacy sidecar path), `BRIEF_MODEL_BASE` defaults to OpenRouter and `BRIEF_MODEL_NAME` to `deepseek/deepseek-chat`. The Brief model also powers scene notes (`lib/minis.js`); if unset, minis try extractor → updater, then the companion’s chat model.
+Settings → Memory Pipeline (or `~/tanevan-data/pipeline_config.json`): global provider **Anthropic / OpenAI / OpenRouter / local / hybrid**, with per-step models for **summarizer, extractor, updater, reflection, and brief**. Keys can live in that file; otherwise **`ANTHROPIC_API_KEY`** (exported by `start.sh` from `data/settings.json`), **`OPENAI_API_KEY`** / **`OPENROUTER_API_KEY`**, or Love Refactored settings. Pipeline steps have **no hardcoded model IDs** — configure before the first run. Exception: if **`BRIEF_MODEL_KEY`** is set (legacy sidecar path), `BRIEF_MODEL_BASE` defaults to OpenRouter and `BRIEF_MODEL_NAME` to `deepseek/deepseek-chat`. The Brief model also powers scene notes (`lib/minis.js`); if unset, minis try extractor → updater, then the companion’s chat model. Direct Anthropic pipeline calls use the same Claude 5 thinking pin as chat (disabled, or adaptive at effort low for Opus 5.5 / Fable / Mythos).
 
 ### Source files
 
@@ -563,6 +568,7 @@ Love Refactored sends **`user_name`** (persona display name) on buffer/flush/imp
 | `TANEVAN_DATA_DIR` | `~/tanevan-data` | All companion DBs + pipeline config |
 | `TANEVAN_PROXY_PORT` / `_HOST` | `5001` / `127.0.0.1` | Bind |
 | `TANEVAN_SUMMARIZE_EVERY` | `100` | Auto-flush threshold |
+| `TANEVAN_PIPELINE_MAX_FAILURES` | `3` | Consecutive failed auto-runs before that companion’s auto-flush pauses |
 | `TANEVAN_COMPANION_NAME` | first in UI order | Default companion |
 | `TANEVAN_USER_NAME` | `the user` | Fallback label |
 | `TANEVAN_URL` | from settings | Node → proxy (multi-instance) |
@@ -715,11 +721,12 @@ npm start          # same as ./start.sh
 LoveRefactored/
 ├── server.js              # Express app: LLM routing, image/voice/proactive
 ├── lib/                   # system-prompt.js, minis.js, image-prompts.js,
+│                          #   image-prompts-small.js (LM Studio prompt writer),
 │                          #   background-schedule.js, lr_settings.py
 ├── auth.example.js        # Copy to auth.js (gitignored) for public hosts
 ├── routes/                # calendar, companions, groups, history-chat,
 │                          #   logs-settings, lorebooks, parlors, persona, spotify,
-│                          #   telegram, v3-shell
+│                          #   telegram, v3-shell, beta-agreement
 ├── db/                    # SQLite chat (chat.js, chat-storage.js, chat-backup.js)
 ├── scripts/               # migrate-chat-to-sqlite.js, auth-users.js, dedup-data.py
 ├── public/
@@ -773,14 +780,14 @@ On a VPS, only **3000** should be reachable from the internet. Tanevan, Whisper,
 |-----------|-----------|------------------------------|-----------|
 | Temperature | ✅ | ✅ | ✅ |
 | Top P | ✅ | ✅ | ✅ |
-| Top K | ❌ | ❌* | ✅ |
+| Top K | ✅ | ❌* | ✅ |
 | Min P | ❌ | ✅* (sent only when > 0) | ✅ |
 | Max tokens | ✅ | ✅ | ✅ |
 | Frequency penalty | ❌ | ✅ | ✅ |
 | Presence penalty | ❌ | ✅ | ✅ |
 | Stop sequences | ✅ | ✅ (OpenAI max 4) | ✅ |
 
-\*Depends on upstream; local servers vary. **`sendSamplingParams: false`** omits sampling fields entirely.
+\*Depends on upstream; local servers vary. **`sendSamplingParams: false`** omits sampling fields entirely. Anthropic accepts **top_k** when sampling is on. It rejects **temperature** and **top_p** together; if both are set, temperature is sent and top_p is dropped (logged once per process).
 
 ---
 
@@ -794,7 +801,8 @@ On a VPS, only **3000** should be reachable from the internet. Tanevan, Whisper,
 - **Images** — ComfyUI reachable with Flux + workflow nodes; fal: `imageProvider` `fal` + key + optional `falLoraUrl`; Replicate: token + face refs for couple/group.
 - **GIFs missing** — Klipy key in Settings → Integrations; companions use `[gif: …]`.
 - **Spotify** — Premium; use “Play in Love Refactored” where applicable.
-- **Memory** — Tanevan on **5001** (re-run `./start.sh` after the first companion); Settings → Server & schedule / Pipeline tests. Upgrading the store: `backfill_entities.py` then `reembed.py`. No life brief until a Brief model is set and a session summary has completed. A hand-edited brief stays locked until you regenerate. Scene notes need 20 new 1:1 messages after the last mini. Reflections only reach chat when Character → Intermediate continuity is on.
+- **Memory** — Tanevan on **5001** (re-run `./start.sh` after the first companion); Settings → Server & schedule / Pipeline tests. Upgrading the store: `backfill_entities.py` then `reembed.py`. No life brief until a Brief model is set and a session summary has completed. A hand-edited brief stays locked until you regenerate. Scene notes need 20 new 1:1 messages after the last mini. Reflections only reach chat when Character → Intermediate continuity is on. If automatic memory runs fail three times in a row, that companion’s auto-flush pauses and the buffer is held until you flush manually or restart Tanevan.
+- **Custom endpoint** — set a model name (required). For Venice use `https://api.venice.ai` or `https://api.venice.ai/api`, without `/v1`. The error text includes the HTTP status and the provider’s message.
 - **Lost messages on restart** — wait a few seconds after send so SQLite can flush.
 - **JSON history upgrade** — `npm run migrate-chat` once, confirm the UI, then delete `data/chat_history/`.
 - **Public deploy without auth** — copy `auth.example.js`, create an admin, restart.
