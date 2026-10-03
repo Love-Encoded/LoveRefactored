@@ -41,6 +41,7 @@ const {
   formatLocationAnchor,
   sanitizeFluxPrompt,
   buildSpecificMultiFallbackPrompt,
+  describeReferenceSpans,
   buildNanoBananaIdentityLockedPrompt,
   buildFullAppearance,
   buildSoloImagePromptSystem,
@@ -2061,6 +2062,73 @@ function resolvePersonaFacePath() {
     return null;
   }
   return null;
+}
+
+function refImageAbsPaths(obj) {
+  return refImageList(obj).map(f => path.join(DATA_DIR, 'reference_images', f));
+}
+
+/** Every persona reference photo, or the persona avatar when no reference photos are on file. */
+function resolvePersonaFacePaths() {
+  const refs = refImageAbsPaths(getPersona());
+  if (refs.length) return refs;
+  const avatar = resolvePersonaFacePath();
+  return avatar ? [avatar] : [];
+}
+
+// Nano Banana takes a limited set of reference images. Keep one photo per person,
+// then fill the remaining slots with extra angles of those same faces.
+const MAX_GEN_REF_IMAGES = 10;
+
+function budgetFaceSets(sets, max = MAX_GEN_REF_IMAGES) {
+  const people = (sets || []).filter(s => s.paths && s.paths.length).slice(0, max);
+  const out = people.map(s => ({ ...s, paths: [s.paths[0]] }));
+  let used = out.length;
+  let progressed = true;
+  while (progressed && used < max) {
+    progressed = false;
+    for (let i = 0; i < people.length && used < max; i++) {
+      const next = out[i].paths.length;
+      if (next < people[i].paths.length) {
+        out[i].paths.push(people[i].paths[next]);
+        used++;
+        progressed = true;
+      }
+    }
+  }
+  return out;
+}
+
+/** People in a generation, each with every reference photo that fits in the request. */
+function collectGenerationFaces(companionNames, includeUser) {
+  const raw = [];
+  for (const cName of companionNames || []) {
+    const card = getCompanion(cName);
+    if (!card) continue;
+    const paths = refImageAbsPaths(card);
+    if (paths.length) raw.push({ name: cName, paths, card });
+  }
+  if (includeUser) {
+    const persona = getPersona();
+    const paths = resolvePersonaFacePaths();
+    if (paths.length) raw.push({ name: persona.name || 'User', paths, persona: true });
+  }
+  return budgetFaceSets(raw);
+}
+
+function appearanceForFace(face) {
+  if (face.persona) {
+    const persona = getPersona();
+    return {
+      line: `${face.name}: ${persona.appearance || persona.backstory || '(no description)'}`,
+      pronouns: personaPronouns(persona)
+    };
+  }
+  const card = face.card || getCompanion(face.name);
+  return {
+    line: `${face.name}: ${card.avatarDescription || card.appearance || '(no description)'}`,
+    pronouns: inferCompanionPronouns(card)
+  };
 }
 
 /** Extract [photo:] or [camera:] hint; handles truncated tags missing a closing ]. */
@@ -8344,20 +8412,25 @@ app.post('/api/upload-reference-image', (req, res) => {
       const companionName = req.body.companion;
       if (!companionName) return res.status(400).json({ error: 'No companion name provided' });
 
+      const card = getCompanion(companionName);
+      const existing = refImageList(card);
+      if (existing.length >= MAX_FACE_REFS) {
+        return res.status(400).json({ error: `Maximum of ${MAX_FACE_REFS} reference photos reached. Remove one first.`, files: existing, max: MAX_FACE_REFS });
+      }
+
       const safeName = companionName.toLowerCase().replace(/[^a-z0-9]/g, '_');
       const ext = req.file.originalname.match(/\.(jpe?g|png|webp|gif)$/i)?.[0] || '.png';
-      const filename = `${safeName}_reference${ext}`;
+      // Unique name per upload. A fixed `${safeName}_reference` name overwrote the previous photo.
+      const filename = `${safeName}_reference_${Date.now()}${ext}`;
       const refDir = path.join(DATA_DIR, 'reference_images');
       if (!fs.existsSync(refDir)) fs.mkdirSync(refDir, { recursive: true });
       fs.writeFileSync(path.join(refDir, filename), req.file.buffer);
 
-      // Save the local filename to the companion's card
-      const card = getCompanion(companionName);
-      card.falReferenceImage = filename;
+      const list = setRefImages(card, [...existing, filename]);
       saveCompanion(companionName, card);
 
-      console.log(`📸 Saved reference image for ${companionName}: ${filename} (${(req.file.size / 1024).toFixed(0)}KB)`);
-      return res.json({ success: true, filename });
+      console.log(`📸 Saved reference image for ${companionName}: ${filename} (${(req.file.size / 1024).toFixed(0)}KB) — ${list.length}/${MAX_FACE_REFS}`);
+      return res.json({ success: true, filename, files: list, max: MAX_FACE_REFS });
     } catch (e) {
       console.error('Reference image upload error:', e.message);
       return res.status(500).json({ error: `Upload failed: ${e.message}` });
@@ -8722,55 +8795,32 @@ app.post('/api/generate-image', async (req, res) => {
           return fs.readFileSync(absPath);
         }
 
-        for (const cName of multiCompanions) {
-          const cCard = getCompanion(cName);
-          if (!cCard) continue;
-
-          if (cCard.falReferenceImage) {
-            const refPath = path.join(DATA_DIR, 'reference_images', cCard.falReferenceImage);
-            const buf = readImageBuffer(refPath);
-            if (buf) {
-              imageUrls.push(buf);
-              names.push(cName);
-              console.log(`📎 Replicate group: added ${cName} reference (${(buf.length / 1024).toFixed(0)}KB buffer)`);
-            }
-          }
+        const loadedFaces = [];
+        for (const face of collectGenerationFaces(multiCompanions, includeUser)) {
+          const bufs = face.paths.map(readImageBuffer).filter(Boolean);
+          if (!bufs.length) continue;
+          bufs.forEach(buf => imageUrls.push(buf));
+          names.push(face.name);
+          loadedFaces.push({ ...face, count: bufs.length });
+          console.log(`📎 Replicate group: added ${face.name} (${bufs.length} reference photo${bufs.length === 1 ? '' : 's'})`);
         }
 
-        // Include user's reference if requested
-        if (includeUser) {
-          const persona = getPersona();
-          const facePath = resolvePersonaFacePath();
-          if (facePath) {
-            const buf = readImageBuffer(facePath);
-            if (buf) {
-              imageUrls.push(buf);
-              names.push(persona.name || 'User');
-              console.log(`📎 Replicate group: added ${persona.name || 'User'} reference (${(buf.length / 1024).toFixed(0)}KB buffer)`);
-            }
-          }
-        }
-
-        if (imageUrls.length < 2) {
-          return res.json({ error: `Need at least 2 reference images for group photos. Only found ${imageUrls.length}: ${names.join(', ') || 'none'}` });
+        if (names.length < 2) {
+          return res.json({ error: `Need at least 2 people with reference images for a group photo. Only found ${names.length}: ${names.join(', ') || 'none'}` });
         }
 
         // Build prompt (reuse existing LLM prompt generation or custom prompt)
+        const refCounts = loadedFaces.map(f => f.count);
         let nbPrompt;
         if (customPrompt) {
           nbPrompt = customPrompt;
         } else {
           const appearanceList = [];
           const pronounsList = [];
-          for (const cName of multiCompanions) {
-            const cCard = getCompanion(cName);
-            appearanceList.push(`${cName}: ${cCard.avatarDescription || cCard.appearance || '(no description)'}`);
-            pronounsList.push(inferCompanionPronouns(cCard));
-          }
-          if (includeUser) {
-            const persona = getPersona();
-            appearanceList.push(`${persona.name || 'User'}: ${persona.appearance || persona.backstory || '(no description)'}`);
-            pronounsList.push(personaPronouns(persona));
+          for (const face of loadedFaces) {
+            const row = appearanceForFace(face);
+            appearanceList.push(row.line);
+            pronounsList.push(row.pronouns);
           }
           const recentMessages = multiRecentMessages;
 
@@ -8787,14 +8837,16 @@ app.post('/api/generate-image', async (req, res) => {
                   recentMessages,
                   locationAnchor: multiLocationAnchor,
                   sceneHint,
-                  excludeUserName
+                  excludeUserName,
+                  refCounts
                 })
               : buildMultiImagePromptUser({
                   appearanceList,
                   recentMessages,
                   locationAnchor: multiLocationAnchor,
                   sceneHint,
-                  excludeUserName
+                  excludeUserName,
+                  refCounts
                 });
 
             let generated = await callLLM(multiPromptSystem, [{ role: 'user', content: multiPromptUser }], imagePromptSettings, { maxTokens: 4000, temperature: 0.7, anthropicMeta: promptWriterMeta });
@@ -8809,19 +8861,21 @@ app.post('/api/generate-image', async (req, res) => {
               generated = (retry && !new RegExp(`\\b${excludeUserName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(retry)) ? retry : '';
             }
             if (isRepetitiveGarbage(generated)) {
-              nbPrompt = buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint);
+              nbPrompt = buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint, refCounts);
             } else {
-              nbPrompt = sanitizeFluxPrompt((generated || '').trim()) || buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint);
+              nbPrompt = sanitizeFluxPrompt((generated || '').trim()) || buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint, refCounts);
             }
             console.log('🎨 Replicate LLM-generated multi-person prompt:', nbPrompt);
             logImagePromptWriter();
           } catch (e) {
             console.log('Multi-person prompt generation failed, using fallback:', e.message);
-            nbPrompt = buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint);
+            nbPrompt = buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint, refCounts);
           }
         }
 
-        const finalNbPrompt = customPrompt ? buildNanoBananaIdentityLockedPrompt(nbPrompt, names, imagePromptDeps) : nbPrompt;
+        const finalNbPrompt = customPrompt
+          ? buildNanoBananaIdentityLockedPrompt(nbPrompt, names, imagePromptDeps, refCounts)
+          : `${describeReferenceSpans(names, refCounts)}\n${nbPrompt}`;
         console.log('🎨 Final Replicate Nano Banana prompt:', finalNbPrompt);
 
         const nbLog = addLog({
@@ -8908,7 +8962,8 @@ app.post('/api/generate-image', async (req, res) => {
 
       // === SINGLE COMPANION IMAGE ===
       const hasLora = !!card.falLoraUrl;
-      const hasReferenceImage = !!card.falReferenceImage;
+      const companionRefPaths = refImageAbsPaths(card);
+      const hasReferenceImage = companionRefPaths.length > 0;
       const method = card.imageGenMethod || 'auto';
 
       let useLora, useNanoBananaSoloRef;
@@ -8946,13 +9001,13 @@ app.post('/api/generate-image', async (req, res) => {
       let repOutput;
 
       if (useNanoBananaSoloRef) {
-        const refPath = cameraMode ? cameraRefPath : path.join(DATA_DIR, 'reference_images', card.falReferenceImage);
-        if (!fs.existsSync(refPath)) {
-          throw new Error(`Reference image not found: ${cameraMode ? 'persona face reference' : card.falReferenceImage}`);
+        const facePaths = cameraMode ? resolvePersonaFacePaths() : companionRefPaths;
+        const refBuffers = facePaths.filter(p => fs.existsSync(p)).map(p => fs.readFileSync(p));
+        if (!refBuffers.length) {
+          throw new Error(`Reference image not found: ${cameraMode ? 'persona face reference' : (card.falReferenceImage || companionName)}`);
         }
-        const refBuffer = fs.readFileSync(refPath);
-        const personMapping = `Reference image 1: ${cameraMode ? cameraSubjectName : companionName}`;
-        const finalNbPrompt = `Using the uploaded reference image to maintain exact face likeness for this person. ${personMapping}. Create the following scene: ${imagePrompt}`;
+        const who = cameraMode ? cameraSubjectName : companionName;
+        const finalNbPrompt = `${describeReferenceSpans([who], [refBuffers.length])} Create the following scene: ${imagePrompt}`;
         galleryImagePrompt = finalNbPrompt;
         attachFinalImagePromptLog(genLog, {
           finalPrompt: finalNbPrompt,
@@ -8960,19 +9015,19 @@ app.post('/api/generate-image', async (req, res) => {
           provider: 'replicate',
           model: 'google/nano-banana-pro',
           companion: companionName,
-          referenceImageCount: 1
+          referenceImageCount: refBuffers.length
         });
 
         repOutput = await replicate.run('google/nano-banana-pro', {
           input: {
             prompt: finalNbPrompt,
-            image_input: [refBuffer],
+            image_input: refBuffers,
             num_images: 1,
             aspect_ratio: '1:1',
             output_format: 'png'
           }
         });
-        console.log(`📸 Replicate Nano Banana (face reference) for ${companionName}: ${card.falReferenceImage}`);
+        console.log(`📸 Replicate Nano Banana (face reference) for ${companionName}: ${refBuffers.length} photo${refBuffers.length === 1 ? '' : 's'}`);
 
       } else if (useLora) {
         // === FLUX with LoRA on Replicate ===
@@ -9138,53 +9193,38 @@ app.post('/api/generate-image', async (req, res) => {
         const imageUrls = [];
         const names = [];
 
-        // Collect reference images for each selected companion — upload to fal storage for real URLs
-        for (const cName of multiCompanions) {
-          const cCard = getCompanion(cName);
-          if (cCard.falReferenceImage) {
-            const url = await uploadRefToFal(cCard.falReferenceImage);
-            if (url) {
-              imageUrls.push(url);
-              names.push(cName);
-            }
+        const loadedFaces = [];
+        for (const face of collectGenerationFaces(multiCompanions, includeUser)) {
+          const urls = [];
+          for (const p of face.paths) {
+            const url = await uploadImagePathToFal(p, path.basename(p));
+            if (url) urls.push(url);
           }
+          if (!urls.length) continue;
+          urls.forEach(url => imageUrls.push(url));
+          names.push(face.name);
+          loadedFaces.push({ ...face, count: urls.length });
+          console.log(`📎 fal group: added ${face.name} (${urls.length} reference photo${urls.length === 1 ? '' : 's'})`);
         }
 
-        // Include user face: Reference Face Photo and/or persona avatar upload (see resolvePersonaFacePath)
-        if (includeUser) {
-          const persona = getPersona();
-          const facePath = resolvePersonaFacePath();
-          if (facePath) {
-            const url = await uploadImagePathToFal(facePath);
-            if (url) {
-              imageUrls.push(url);
-              names.push(persona.name || 'User');
-            }
-          }
-        }
-
-        if (imageUrls.length < 2) {
-          return res.json({ error: `Need at least 2 people with reference images for a group photo. Only found ${imageUrls.length}: ${names.join(', ') || 'none'}` });
+        if (names.length < 2) {
+          return res.json({ error: `Need at least 2 people with reference images for a group photo. Only found ${names.length}: ${names.join(', ') || 'none'}` });
         }
 
         const nbEndpoint = 'fal-ai/nano-banana-2/edit';
 
         // Build an LLM-generated prompt grounded in the conversation
+        const refCounts = loadedFaces.map(f => f.count);
         let nbPrompt;
         if (customPrompt) {
           nbPrompt = customPrompt;
         } else {
           const appearanceList = [];
           const pronounsList = [];
-          for (const cName of multiCompanions) {
-            const cCard = getCompanion(cName);
-            appearanceList.push(`${cName}: ${cCard.avatarDescription || cCard.appearance || '(no description)'}`);
-            pronounsList.push(inferCompanionPronouns(cCard));
-          }
-          if (includeUser) {
-            const persona = getPersona();
-            appearanceList.push(`${persona.name || 'User'}: ${persona.appearance || persona.backstory || '(no description)'}`);
-            pronounsList.push(personaPronouns(persona));
+          for (const face of loadedFaces) {
+            const row = appearanceForFace(face);
+            appearanceList.push(row.line);
+            pronounsList.push(row.pronouns);
           }
           // Use live group context when available (fallbacks handled above).
           const recentMessages = multiRecentMessages;
@@ -9202,14 +9242,16 @@ app.post('/api/generate-image', async (req, res) => {
                   recentMessages,
                   locationAnchor: multiLocationAnchor,
                   sceneHint,
-                  excludeUserName
+                  excludeUserName,
+                  refCounts
                 })
               : buildMultiImagePromptUser({
                   appearanceList,
                   recentMessages,
                   locationAnchor: multiLocationAnchor,
                   sceneHint,
-                  excludeUserName
+                  excludeUserName,
+                  refCounts
                 });
 
             let generated = await callLLM(multiPromptSystem, [{ role: 'user', content: multiPromptUser }], imagePromptSettings, { maxTokens: 4000, temperature: 0.7, anthropicMeta: promptWriterMeta });
@@ -9224,15 +9266,15 @@ app.post('/api/generate-image', async (req, res) => {
               generated = (retry && !new RegExp(`\\b${excludeUserName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(retry)) ? retry : '';
             }
             if (isRepetitiveGarbage(generated)) {
-              nbPrompt = buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint);
+              nbPrompt = buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint, refCounts);
             } else {
-              nbPrompt = sanitizeFluxPrompt((generated || '').trim()) || buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint);
+              nbPrompt = sanitizeFluxPrompt((generated || '').trim()) || buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint, refCounts);
             }
             console.log('🎨 LLM-generated multi-person prompt:', nbPrompt);
             logImagePromptWriter();
           } catch (e) {
             console.log('Multi-person prompt generation failed, using fallback:', e.message);
-            nbPrompt = buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint);
+            nbPrompt = buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint, refCounts);
           }
         }
 
@@ -9247,7 +9289,9 @@ app.post('/api/generate-image', async (req, res) => {
         const nbT0 = Date.now();
 
         // Build a reference-aware prompt: prefix with explicit instruction + person-to-image mapping
-        const finalNbPrompt = customPrompt ? buildNanoBananaIdentityLockedPrompt(nbPrompt, names, imagePromptDeps) : nbPrompt;
+        const finalNbPrompt = customPrompt
+          ? buildNanoBananaIdentityLockedPrompt(nbPrompt, names, imagePromptDeps, refCounts)
+          : `${describeReferenceSpans(names, refCounts)}\n${nbPrompt}`;
         console.log('🎨 Final Nano Banana prompt:', finalNbPrompt);
         attachFinalImagePromptLog(nbLog, {
           finalPrompt: finalNbPrompt,
@@ -9369,7 +9413,8 @@ app.post('/api/generate-image', async (req, res) => {
       }
 
       const hasLora = !!card.falLoraUrl;
-      const hasReferenceImage = !!card.falReferenceImage;
+      const companionRefPaths = refImageAbsPaths(card);
+      const hasReferenceImage = companionRefPaths.length > 0;
       const method = card.imageGenMethod || 'auto';
 
       let useLora, useNanoBananaSoloRef;
@@ -9391,12 +9436,12 @@ app.post('/api/generate-image', async (req, res) => {
       if (cameraMode) { useLora = false; useNanoBananaSoloRef = true; }
 
       if (useNanoBananaSoloRef) {
-        const refPath = cameraMode ? cameraRefPath : path.join(DATA_DIR, 'reference_images', card.falReferenceImage);
-        if (!fs.existsSync(refPath)) {
-          return res.json({ error: `Reference image not found: ${cameraMode ? 'persona face reference' : card.falReferenceImage}` });
+        const facePaths = (cameraMode ? resolvePersonaFacePaths() : companionRefPaths).filter(p => fs.existsSync(p));
+        if (!facePaths.length) {
+          return res.json({ error: `Reference image not found: ${cameraMode ? 'persona face reference' : (card.falReferenceImage || companionName)}` });
         }
-        const personMapping = `Reference image 1: ${cameraMode ? cameraSubjectName : companionName}`;
-        const finalNbPrompt = `Using the uploaded reference image to maintain exact face likeness for this person. ${personMapping}. Create the following scene: ${imagePrompt}`;
+        const who = cameraMode ? cameraSubjectName : companionName;
+        const finalNbPrompt = `${describeReferenceSpans([who], [facePaths.length])} Create the following scene: ${imagePrompt}`;
         const nbEndpoint = 'fal-ai/nano-banana-2/edit';
 
         const nbLog = addLog({
@@ -9414,27 +9459,29 @@ app.post('/api/generate-image', async (req, res) => {
           provider: 'fal',
           model: nbEndpoint,
           companion: companionName,
-          referenceImageCount: 1
+          referenceImageCount: facePaths.length
         });
 
-        const refUrl = cameraMode
-          ? await uploadImagePathToFal(cameraRefPath, path.basename(cameraRefPath))
-          : await uploadRefToFal(card.falReferenceImage);
-        if (!refUrl) {
+        const refUrls = [];
+        for (const p of facePaths) {
+          const url = await uploadImagePathToFal(p, path.basename(p));
+          if (url) refUrls.push(url);
+        }
+        if (!refUrls.length) {
           updateLog(nbLog.id, { direction: 'inbound', status: 'error', duration: Date.now() - nbT0, details: imagePromptLogDetails(nbLog, 'Reference upload failed') });
           return res.json({ error: 'Could not upload reference image for Nano Banana' });
         }
 
         const nbBody = {
           prompt: finalNbPrompt,
-          image_urls: [refUrl],
+          image_urls: refUrls,
           num_images: 1,
           aspect_ratio: '1:1',
           output_format: 'png',
           safety_tolerance: '6'
         };
 
-        console.log(`📸 fal.ai Nano Banana 2 solo (face reference): ${companionName}`);
+        console.log(`📸 fal.ai Nano Banana 2 solo (face reference): ${companionName} (${refUrls.length} photo${refUrls.length === 1 ? '' : 's'})`);
 
         const submitRes = await fetch(`https://queue.fal.run/${nbEndpoint}`, {
           method: 'POST',
