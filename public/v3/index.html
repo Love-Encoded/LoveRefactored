@@ -138,6 +138,10 @@ input,textarea,select{font-family:inherit;color:inherit}
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .top-id .lbl{color:var(--who);opacity:.85;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis;display:block}
+.top-id{display:flex;flex-wrap:wrap;align-items:center;column-gap:8px}
+.top-id b{flex:1 0 100%}
+.top-id .lbl{flex:0 1 auto;min-width:0}
+#topform:not([hidden]){flex:0 0 auto}
 .tbtn{width:32px;height:32px;border-radius:var(--r-full);display:grid;place-items:center;
   color:var(--ink-3);flex-shrink:0;transition:background .14s,color .14s}
 .tbtn:hover{background:var(--lamp-hi);color:var(--ink-2)}
@@ -2386,6 +2390,7 @@ html.kiosk #kiosk-eye.on{background:var(--live);opacity:1;box-shadow:0 0 10px va
       <span class="top-id">
         <b id="topname"></b>
         <span class="lbl" id="topsub"></span>
+        <button type="button" id="topform" hidden style="margin-left:8px;font:inherit;font-size:11px;line-height:1.4;color:var(--who);background:transparent;border:1px solid color-mix(in oklab,var(--who) 45%,transparent);border-radius:999px;padding:1px 8px;cursor:pointer;vertical-align:middle"></button>
       </span>
       <button class="tbtn" id="callbtn" title="Call">
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.2 3.5h3l1.3 3.2-1.8 1.4a10 10 0 0 0 4.2 4.2l1.4-1.8 3.2 1.3v3a1.2 1.2 0 0 1-1.3 1.2A13 13 0 0 1 3 4.8a1.2 1.2 0 0 1 1.2-1.3Z"/></svg>
@@ -2718,6 +2723,34 @@ html.kiosk #kiosk-eye.on{background:var(--live);opacity:1;box-shadow:0 0 10px va
               <p class="hint">One front-facing, one three-quarter, one in different light — the image model combines them to lock the face. No sunglasses. Stored locally. Used for couple and group photos, and for any generation without a LoRA.</p>
               <div class="facestrip" id="t-face" data-fs-kind="companion"></div>
               <span class="runs" id="t-face-status"></span>
+            </div>
+            <div class="cfg-sub">Alternate form</div>
+            <p class="hint" style="margin-bottom:var(--s4)">For companions with more than one body — a shifter, a glamour, a mech and its pilot, a god in disguise, the same person at another age. Each form keeps its own appearance, face photos, and avatar. Flip the switch and the image generator and chat avatar follow; everything else about them stays exactly the same.</p>
+            <div id="altform-off">
+              <button class="btn ghost" id="altform-create">Give them a second form</button>
+            </div>
+            <div id="altform-on" style="display:none">
+              <div style="display:flex;align-items:flex-end;gap:var(--s4);flex-wrap:wrap;margin-bottom:var(--s4)">
+                <div class="field" style="margin:0;max-width:220px"><label for="altform-live-label">This form is called</label><input class="inp" id="altform-live-label" placeholder="e.g. Human, Day, Mortal"></div>
+                <button class="btn" id="altform-swap">Switch to <span id="altform-swap-name">the other form</span></button>
+                <span class="runs" id="altform-status"></span>
+              </div>
+              <div class="field" style="max-width:220px"><label for="altform-label">The other form is called</label><input class="inp" id="altform-label" placeholder="e.g. Wolf, Night, True form"></div>
+              <div class="field"><label for="altform-appearance">Appearance in that form <span class="inh">image generator only</span></label>
+                <p class="hint">Same rules as Appearance above — exact words, every marking, every detail the picture needs.</p>
+                <textarea class="inp" id="altform-appearance" rows="6" placeholder="Everything the picture needs for this form — build, colouring, markings, clothing or none, what changes and what stays the same…"></textarea></div>
+              <div class="field"><label>Reference photos for that form <span class="inh">up to 4</span></label>
+                <div class="facestrip" id="t-face-alt" data-fs-kind="altform"></div>
+                <span class="runs" data-fs-status></span></div>
+              <div class="field"><label>Avatar for that form</label>
+                <div style="display:flex;align-items:center;gap:var(--s4)">
+                  <img id="altform-av" alt="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:var(--line);display:none">
+                  <button class="btn ghost" id="altform-av-upload">Upload photo</button>
+                  <button class="btn ghost" id="altform-av-remove" style="display:none">Remove</button>
+                </div></div>
+              <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="altform-tell" checked> Tell them which form they're in</label>
+                <p class="hint">Adds one line to their prompt — "You are currently in your [form name] form." — so they know. Their backstory handles the rest. Off means they're never told; the pictures still change.</p></div>
+              <button class="btn ghost danger" id="altform-remove" style="margin-top:var(--s3)">Remove the second form</button>
             </div>
 
             <div class="cfg-sub">Seen &amp; heard</div>
@@ -8157,9 +8190,19 @@ function openFocus(lf,src){
 var LENS={};        /* the raw memory-lens object for the current companion */
 var saveTimers={};
 function debounceSave(key,fn){
-  clearTimeout(saveTimers[key]);
-  saveTimers[key]=setTimeout(fn,900);
+  if(saveTimers[key]) clearTimeout(saveTimers[key].t);
+  var t=setTimeout(function(){ delete saveTimers[key]; fn(); },900);
+  saveTimers[key]={t:t, fn:fn};
 }
+G.flushCardWrites=function(){
+  var jobs=Object.keys(saveTimers).map(function(k){
+    var job=saveTimers[k];
+    clearTimeout(job.t);
+    delete saveTimers[k];
+    try { return job.fn(); } catch(e){ return null; }
+  });
+  return Promise.all(jobs.map(function(p){ return p&&typeof p.then==='function'?p:Promise.resolve(p); }));
+};
 /* Tanevan's lens fields are fixed: relational_brief, companion_user_backstory,
    whos_who, special_considerations, speech_style. The GET wraps them as {lens:{…}}
    and the PUT wants them back the same way. */
@@ -8202,7 +8245,7 @@ document.addEventListener('input',function(e){
   var c=G.cur(); if(!c) return;
   var prop=inp.dataset.prop, val=inp.value, name=c.name;
   c.card[prop]=val;
-  debounceSave('card:'+prop,function(){ var body={}; body[prop]=val; G.quiet(G.jsend('PUT','/api/companions/'+encodeURIComponent(name), body), null); });
+  debounceSave('card:'+prop,function(){ var body={}; body[prop]=val; return G.quiet(G.jsend('PUT','/api/companions/'+encodeURIComponent(name), body), null); });
 });
 /* one delegated listener writes card edits back to the server */
 document.addEventListener('input',function(e){
@@ -8215,14 +8258,14 @@ document.addEventListener('input',function(e){
     c.card[prop]=val;
     debounceSave('card:'+prop,function(){
       var body={}; body[prop]=val;
-      G.quiet(G.jsend('PUT','/api/companions/'+encodeURIComponent(name), body), null);
+      return G.quiet(G.jsend('PUT','/api/companions/'+encodeURIComponent(name), body), null);
     });
   } else if(lf.dataset.lens){
     var k=lensKeyFor(lf.dataset.lens);
     LENS[k]=ta.value;
     var name2=c.name;
     debounceSave('lens',function(){
-      G.quiet(G.jsend('PUT','/api/companions/'+encodeURIComponent(name2)+'/memory-lens', {lens:LENS}), null);
+      return G.quiet(G.jsend('PUT','/api/companions/'+encodeURIComponent(name2)+'/memory-lens', {lens:LENS}), null);
     });
   }
 });
@@ -9599,6 +9642,7 @@ function paintGroupHead(g){
     return '<i style="--c:'+p.hue+'">'+esc(p.init)+'</i>';}).join('')+'</span>';
   nm.textContent=g.name;
   sub.textContent=mem.map(function(p){return p.name.toLowerCase();}).join(' · ');
+  var formChip=$('#topform'); if(formChip) formChip.hidden=true;
   var ph=$('#v-group .grow'); if(ph) ph.dataset.ph='Message '+g.name+'…';
   G.drawGroupThread(g);
   if(g.thread===undefined) loadGroupThread(g);
@@ -11675,6 +11719,174 @@ if(avBtn) avBtn.addEventListener('click',function(){
   });
 });
 
+/* ── alternate form (any two bodies): second appearance, face photos, avatar, and the switch ── */
+(function(){
+  var ALT_T={};
+  var EMPTY_ALT={label:'',appearance:'',avatarDescription:'',falReferenceImage:'',falReferenceImages:[]};
+  function altOf(c){ var a=c&&c.card&&c.card.altForm; return (a&&typeof a==='object')?a:null; }
+  function api(c){ return '/api/companions/'+encodeURIComponent(c.name); }
+  function status(t,bad){ say('#altform-status',t,bad); if(t&&!bad) setTimeout(function(){ say('#altform-status',''); },2500); }
+  function deb(k,fn){ clearTimeout(ALT_T[k]); ALT_T[k]=setTimeout(fn,300); }
+  function putAlt(c, patch){
+    var a=Object.assign({}, EMPTY_ALT, altOf(c)||{}, patch||{});
+    a.falReferenceImages=Array.isArray(a.falReferenceImages)?a.falReferenceImages.slice():[];
+    c.card.altForm=a;
+    return G.jsend('PUT',api(c),{altForm:a});
+  }
+  function fillIdle(id, val){ var el=$(id); if(el && document.activeElement!==el) el.value=val; }
+  function paintAlt(c){
+    var off=$('#altform-off'), on=$('#altform-on'); if(!off||!on) return;
+    var a=c?altOf(c):null;
+    off.style.display=a?'none':''; on.style.display=a?'':'none';
+    if(!a) return;
+    fillIdle('#altform-live-label', c.card.activeForm||'');
+    if(document.activeElement!==$('#altform-label')) $('#altform-swap-name').textContent=a.label||'the other form';
+    fillIdle('#altform-label', a.label||'');
+    fillIdle('#altform-appearance', a.appearance||'');
+    var tl=$('#altform-tell'); if(tl) tl.checked=c.card.altFormTellModel!==false;
+    G.paintFaceStrip($('#t-face-alt'), G.refList(a), {empty:'No photos for this form yet.'});
+    var img=$('#altform-av'), rm=$('#altform-av-remove');
+    img.style.display='none'; rm.style.display='none';
+    var probe=new Image();
+    probe.onload=function(){ if(G.cur()&&G.cur().name===c.name){ img.src=probe.src; img.style.display=''; rm.style.display=''; } };
+    probe.src=api(c)+'/avatar-alt?v='+Date.now();
+  }
+  G.paintAltForm=paintAlt;
+  document.addEventListener('lr:wear', function(e){ paintAlt(e.detail); });
+  if(G.cur()) paintAlt(G.cur());
+
+  /* create / remove the second form */
+  var mk=$('#altform-create');
+  if(mk) mk.addEventListener('click',function(){
+    var c=G.cur(); if(!c) return;
+    var body={altForm:Object.assign({},EMPTY_ALT,{falReferenceImages:[]})};
+    c.card.altForm=body.altForm;
+    G.jsend('PUT',api(c),body).then(function(){ paintAlt(c); var l=$('#altform-live-label'); if(l&&!l.value) l.focus(); })
+      .catch(function(e){ G.fail('Could not add a second form',e); });
+  });
+  var rmF=$('#altform-remove');
+  if(rmF) rmF.addEventListener('click',function(){
+    var c=G.cur(); if(!c) return;
+    G.modal({title:'Remove the second form?', body:'Their current look stays exactly as it is. The other form\'s appearance, photos and avatar are deleted.', actions:[{label:'Remove',danger:true,fn:function(){
+      var files=G.refList(altOf(c)||{});
+      var chain=files.reduce(function(p,f){ return p.then(function(){ return G.quiet(G.jsend('POST',api(c)+'/form/alt/remove-reference-image',{filename:f}),null); }); },Promise.resolve());
+      chain.then(function(){ return G.quiet(G.jsend('DELETE',api(c)+'/avatar-alt'),null); })
+        .then(function(){ c.card.altForm=null; return G.jsend('PUT',api(c),{altForm:null}); })
+        .then(function(){ paintAlt(c); })
+        .catch(function(e){ G.fail('Could not remove the second form',e); });
+    }},{label:'Keep'}]});
+  });
+
+  /* labels + appearance text, saved as you type */
+  var liveLbl=$('#altform-live-label');
+  if(liveLbl) liveLbl.addEventListener('input',function(){ var c=G.cur(); if(!c) return; var v=this.value; c.card.activeForm=v; deb('live',function(){ G.quiet(G.jsend('PUT',api(c),{activeForm:v}),null); }); });
+  var altLbl=$('#altform-label');
+  if(altLbl) altLbl.addEventListener('input',function(){ var c=G.cur(); if(!c) return; var v=this.value; $('#altform-swap-name').textContent=v||'the other form'; deb('label',function(){ G.quiet(putAlt(c,{label:v}),null); }); });
+  var altApp=$('#altform-appearance');
+  if(altApp) altApp.addEventListener('input',function(){ var c=G.cur(); if(!c) return; var v=this.value; deb('app',function(){ G.quiet(putAlt(c,{appearance:v}),null); }); });
+
+  /* the other form's avatar */
+  var avUp=$('#altform-av-upload');
+  if(avUp) avUp.addEventListener('click',function(){
+    var c=G.cur(); if(!c) return;
+    pickFile('image/*').then(function(f){
+      if(!f) return;
+      if(f.size>5*1024*1024){ status('too big — 5 MB max',true); return; }
+      status('uploading…');
+      upload(api(c)+'/avatar-alt','avatar',f).then(function(){ status('saved'); paintAlt(c); })
+        .catch(function(e){ status(G.errMsg(e),true); G.fail('Failed to upload the avatar',e); });
+    });
+  });
+  var avRm=$('#altform-av-remove');
+  if(avRm) avRm.addEventListener('click',function(){
+    var c=G.cur(); if(!c) return;
+    G.jsend('DELETE',api(c)+'/avatar-alt').then(function(){ paintAlt(c); }).catch(function(e){ G.fail('Could not remove the avatar',e); });
+  });
+
+  /* the other form's face photos */
+  document.addEventListener('click',function(e){
+    var add=e.target.closest('[data-fs-add]'), del=e.target.closest('[data-fs-del]');
+    if(!add&&!del) return;
+    var host=(add||del).closest('.facestrip'); if(!host||host.dataset.fsKind!=='altform') return;
+    var c=G.cur(); if(!c) return;
+    var st=host.nextElementSibling;
+    function note(m,bad){ if(!st) return; st.textContent=m||''; st.classList.toggle('bad',!!bad); if(m&&!bad) setTimeout(function(){ if(st.textContent===m) st.textContent=''; },2500); }
+    function done(r){ var files=Array.isArray(r.files)?r.files:[]; var a=Object.assign({},EMPTY_ALT,altOf(c)||{}); a.falReferenceImages=files; a.falReferenceImage=files[0]||''; c.card.altForm=a; G.paintFaceStrip(host, files, {bust:Date.now(), empty:'No photos for this form yet.'}); }
+    if(add){
+      if(add.disabled) return;
+      pickFile('image/*').then(function(f){
+        if(!f) return; note('uploading…');
+        upload(api(c)+'/form/alt/reference-image','image',f).then(function(r){ done(r); note('saved'); })
+          .catch(function(err){ note(G.errMsg(err),true); G.fail('Failed to upload the reference photo',err); });
+      });
+      return;
+    }
+    var fname=del.dataset.fsDel;
+    G.modal({title:'Remove this reference photo?', body:fname+' will be removed from this form.', actions:[{label:'Remove',danger:true,fn:function(){
+      note('removing…');
+      G.jsend('POST',api(c)+'/form/alt/remove-reference-image',{filename:fname})
+        .then(function(r){ done(r); note('removed'); })
+        .catch(function(err){ note(G.errMsg(err),true); G.fail('Could not remove the photo',err); });
+    }},{label:'Keep'}]});
+  });
+
+  /* THE SWITCH — from the card, or the chip in the chat header */
+  function cancelAltTimers(){ Object.keys(ALT_T).forEach(function(k){ clearTimeout(ALT_T[k]); delete ALT_T[k]; }); }
+  function flushAlt(c){
+    cancelAltTimers();
+    if(!c||!altOf(c)) return Promise.resolve();
+    var patch={};
+    var lbl=$('#altform-label'); if(lbl) patch.label=lbl.value;
+    var app=$('#altform-appearance'); if(app) patch.appearance=app.value;
+    var a=Object.assign({}, EMPTY_ALT, altOf(c)||{}, patch);
+    a.falReferenceImages=Array.isArray(a.falReferenceImages)?a.falReferenceImages.slice():[];
+    c.card.altForm=a;
+    var body={altForm:a};
+    var live=$('#altform-live-label');
+    if(live){ body.activeForm=live.value; c.card.activeForm=live.value; }
+    var tell=$('#altform-tell');
+    if(tell){ body.altFormTellModel=!!tell.checked; c.card.altFormTellModel=body.altFormTellModel; }
+    return G.jsend('PUT',api(c),body);
+  }
+  function doSwap(c, btn){
+    if(!c||!altOf(c)) return Promise.resolve();
+    if(btn) btn.disabled=true; status('switching…');
+    var prep=G.flushCardWrites?G.flushCardWrites():Promise.resolve();
+    return prep.then(function(){ return flushAlt(c); }).then(function(){
+      return G.jsend('POST',api(c)+'/form/swap');
+    }).then(function(card){
+      c.card=card;
+      G.avatarBust(c.name);
+      $$('img').forEach(function(im){ if(im.src.indexOf(api(c)+'/avatar')>-1 && im.src.indexOf('/avatar-alt')<0) im.src=G.avatarUrl(c.name); });
+      if(G.drawHouse) G.drawHouse();
+      if(G.wear) G.wear(c);
+      status('now '+(card.activeForm||'switched'));
+      if(G.toast) G.toast(c.name+' is now in '+(card.activeForm||'the other')+' form');
+    }).catch(function(e){ status(G.errMsg(e),true); G.fail('Could not switch forms',e); })
+      .then(function(){ if(btn) btn.disabled=false; });
+  }
+  G.swapForm=function(){ return doSwap(G.cur(), $('#topform')); };
+  var sw=$('#altform-swap');
+  if(sw) sw.addEventListener('click',function(){ doSwap(G.cur(), sw); });
+
+  /* the header chip: shows the live form, click to switch */
+  function paintChip(c){
+    var chip=$('#topform'); if(!chip) return;
+    var a=c?altOf(c):null;
+    if(!a){ chip.hidden=true; return; }
+    var live=c.card.activeForm||'this form', other=a.label||'the other form';
+    chip.hidden=false; chip.textContent=live+' ⇄ '+other; chip.title='Switch to '+other+' form';
+  }
+  document.addEventListener('lr:wear', function(e){ paintChip(e.detail); });
+  if(G.cur()) paintChip(G.cur());
+  var chip=$('#topform');
+  if(chip) chip.addEventListener('click',function(e){ e.stopPropagation(); e.preventDefault(); doSwap(G.cur(), chip); });
+
+  /* "tell them which form they're in" */
+  var tell=$('#altform-tell');
+  if(tell) tell.addEventListener('change',function(){ var c=G.cur(); if(!c) return; var v=!!this.checked; c.card.altFormTellModel=v; G.quiet(G.jsend('PUT',api(c),{altFormTellModel:v}),null); });
+})();
+
 /* ── face reference strips: companion card (#t-face) + persona form (.facestrip[data-fs-kind=persona]) ── */
 function stripStatus(host,msg,bad){
   var st = host.id==='t-face' ? $('#t-face-status') : (host.nextElementSibling&&host.nextElementSibling.hasAttribute('data-fs-status')?host.nextElementSibling:null);
@@ -11696,7 +11908,7 @@ document.addEventListener('click',function(e){
   var add=e.target.closest('[data-fs-add]'), del=e.target.closest('[data-fs-del]');
   if(!add&&!del) return;
   var host=(add||del).closest('.facestrip'); if(!host) return;
-  var kind=host.dataset.fsKind||'companion'; if(kind==='onboard') return; /* onboarding owns its own strip */
+  var kind=host.dataset.fsKind||'companion'; if(kind==='onboard'||kind==='altform') return; /* onboarding and the alternate form own their own strips */
   var c=kind==='companion'?G.cur():null; if(kind==='companion'&&!c) return;
   if(add){
     if(add.disabled) return;

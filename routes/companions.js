@@ -469,7 +469,7 @@ function registerCompanionRoutes(app, deps) {
   // Save/update a companion's character card
   app.put('/api/companions/:name', (req, res) => {
     const current = getCompanion(req.params.name);
-    const allowed = ['backstory', 'boundaries', 'personalityVoice', 'birthday', 'zodiac', 'mbti', 'enneagram', 'archetypes', 'emotionalEngine', 'values', 'decisionMaking', 'dailyRhythms', 'tellsTics', 'cameraEye', 'appearance', 'exampleMessages', 'avatar', 'loraTrigger', 'loraPath', 'referenceImage', 'voiceId', 'agentId', 'anamAvatarId', 'provider', 'providerModel', 'providerApiKey', 'providerUrl', 'voiceAnchor', 'speechPatterns', 'groupChatProfileOnly', 'contextMessageCount', 'memoryInjectCount', 'memoryTokenBudget', 'calendarColor', 'proactiveEnabled', 'proactiveNoLimits', 'proactiveFrequency', 'proactiveMinMinutes', 'proactiveMaxUnanswered', 'proactiveProofOfLife', 'proactiveSilenceCheckIn', 'proactiveTelegram', 'proactiveQuietEnabled', 'proactiveQuietStart', 'proactiveQuietEnd', 'proactiveDirective', 'proactiveStyle', 'proactiveThreshold', 'proactiveDecisionModelMode', 'proactiveDecisionProvider', 'proactiveDecisionModel', 'proactiveModelMode', 'proactiveProvider', 'proactiveModel', 'elapsedTimeEnabled', 'falLoraUrl', 'falReferenceImage', 'imageGenMethod', 'temperature', 'responseDirective', 'voiceCallDirective', 'photoEnabled', 'photoDailyLimit', 'wallEnabled', 'reflectionsEnabled', 'reflectionHorizons', 'simliFaceId', 'extendedReasoning', 'useCustomSystemPrompt', 'systemPromptOverride', 'userPersonaOverride', 'loraScale', 'loraId', 'customIncludeDatetime', 'customIncludeLastSeen', 'customIncludeMemories', 'customIncludeEmotional', 'customIncludeLorebook', 'customIncludeJournal', 'customIncludeCalendar', 'customIncludeResponseDir', 'customIncludeTools', 'maxTokens', 'creativeStudioMaxTokens', 'voiceMemoProvider', 'voiceCallProvider', 'voiceReferenceClip', 'elevenLabsVoiceId', 'openrouterRouting'];
+    const allowed = ['backstory', 'boundaries', 'personalityVoice', 'birthday', 'zodiac', 'mbti', 'enneagram', 'archetypes', 'emotionalEngine', 'values', 'decisionMaking', 'dailyRhythms', 'tellsTics', 'cameraEye', 'appearance', 'exampleMessages', 'avatar', 'loraTrigger', 'loraPath', 'referenceImage', 'voiceId', 'agentId', 'anamAvatarId', 'provider', 'providerModel', 'providerApiKey', 'providerUrl', 'voiceAnchor', 'speechPatterns', 'groupChatProfileOnly', 'contextMessageCount', 'memoryInjectCount', 'memoryTokenBudget', 'calendarColor', 'proactiveEnabled', 'proactiveNoLimits', 'proactiveFrequency', 'proactiveMinMinutes', 'proactiveMaxUnanswered', 'proactiveProofOfLife', 'proactiveSilenceCheckIn', 'proactiveTelegram', 'proactiveQuietEnabled', 'proactiveQuietStart', 'proactiveQuietEnd', 'proactiveDirective', 'proactiveStyle', 'proactiveThreshold', 'proactiveDecisionModelMode', 'proactiveDecisionProvider', 'proactiveDecisionModel', 'proactiveModelMode', 'proactiveProvider', 'proactiveModel', 'elapsedTimeEnabled', 'falLoraUrl', 'falReferenceImage', 'imageGenMethod', 'temperature', 'responseDirective', 'voiceCallDirective', 'photoEnabled', 'photoDailyLimit', 'wallEnabled', 'reflectionsEnabled', 'reflectionHorizons', 'simliFaceId', 'extendedReasoning', 'useCustomSystemPrompt', 'systemPromptOverride', 'userPersonaOverride', 'loraScale', 'loraId', 'customIncludeDatetime', 'customIncludeLastSeen', 'customIncludeMemories', 'customIncludeEmotional', 'customIncludeLorebook', 'customIncludeJournal', 'customIncludeCalendar', 'customIncludeResponseDir', 'customIncludeTools', 'maxTokens', 'creativeStudioMaxTokens', 'voiceMemoProvider', 'voiceCallProvider', 'voiceReferenceClip', 'elevenLabsVoiceId', 'openrouterRouting', 'activeForm', 'altForm', 'altFormTellModel'];
     for (const key of allowed) {
       if (req.body[key] !== undefined) current[key] = req.body[key];
     }
@@ -680,6 +680,172 @@ These are BASELINE values — where they start on a good day. The system will ad
     const avatarFile = files.find(f => path.basename(f, path.extname(f)) === safeName);
     if (!avatarFile) return res.status(404).json({ error: 'No avatar found' });
     res.sendFile(path.join(AVATAR_DIR, avatarFile));
+  });
+
+  // === ALTERNATE FORM (a second body — shifter, glamour, another age, whatever they are) ===
+  // A card can carry one stashed `altForm` { label, appearance, avatarDescription,
+  // falReferenceImage, falReferenceImages }. Swapping moves the stashed set to the
+  // top level and stashes what was live. Image routes never need to know — they
+  // keep reading the top-level fields. Avatar files: `<name>.<ext>` is live,
+  // `<name>__alt.<ext>` is the stashed form's picture; they're renamed on swap.
+  const FORM_FIELDS = ['appearance', 'avatarDescription', 'falReferenceImage', 'falReferenceImages'];
+  const FORM_DEFAULTS = { appearance: '', avatarDescription: '', falReferenceImage: '', falReferenceImages: [] };
+
+  function copyFormField(key, value) {
+    const v = value !== undefined ? value : FORM_DEFAULTS[key];
+    if (key === 'falReferenceImages') return Array.isArray(v) ? v.slice() : [];
+    return v;
+  }
+
+  function swapAvatarFiles(safeName) {
+    const files = fs.readdirSync(AVATAR_DIR);
+    const live = files.find(f => path.basename(f, path.extname(f)) === safeName);
+    const alt  = files.find(f => path.basename(f, path.extname(f)) === `${safeName}__alt`);
+    if (!live && !alt) return;
+    const tmp = live ? path.join(AVATAR_DIR, `${safeName}__swaptmp${path.extname(live)}`) : null;
+    if (live) fs.renameSync(path.join(AVATAR_DIR, live), tmp);
+    if (alt)  fs.renameSync(path.join(AVATAR_DIR, alt), path.join(AVATAR_DIR, `${safeName}${path.extname(alt)}`));
+    if (tmp)  fs.renameSync(tmp, path.join(AVATAR_DIR, `${safeName}__alt${path.extname(live)}`));
+  }
+
+  app.post('/api/companions/:name/form/swap', (req, res) => {
+    const name = req.params.name;
+    const card = getCompanion(name);
+    const alt = card.altForm;
+    if (!alt || typeof alt !== 'object') {
+      return res.status(400).json({ error: 'No alternate form set up for this companion yet' });
+    }
+    // stash what is live now
+    const outgoing = { label: card.activeForm || 'Primary' };
+    for (const k of FORM_FIELDS) outgoing[k] = copyFormField(k, card[k]);
+    // bring the stashed form live
+    for (const k of FORM_FIELDS) card[k] = copyFormField(k, alt[k]);
+    card.activeForm = alt.label || 'Alternate';
+    card.altForm = outgoing;
+    try { swapAvatarFiles(name.toLowerCase().replace(/[^a-z0-9]/g, '_')); }
+    catch (e) { console.error(`⚠️ form swap: avatar rename failed for ${name}:`, e.message); }
+    saveCompanion(name, card);
+    res.json(card);
+  });
+
+  // Serve the stashed (non-live) form's avatar picture
+  app.get('/api/companions/:name/avatar-alt', (req, res) => {
+    const safeName = req.params.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const files = fs.readdirSync(AVATAR_DIR);
+    const altFile = files.find(f => path.basename(f, path.extname(f)) === `${safeName}__alt`);
+    if (!altFile) return res.status(404).json({ error: 'No alternate avatar found' });
+    res.sendFile(path.join(AVATAR_DIR, altFile));
+  });
+
+  // --- alternate form: its own avatar picture + its own face reference photos ---
+  const ALT_MAX_FACE_REFS = 4;
+  const altAvatarUpload = multer({
+    storage: multer.diskStorage({
+      destination: (req, file, cb) => cb(null, AVATAR_DIR),
+      filename: (req, file, cb) => {
+        const safeName = req.params.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+        cb(null, `${safeName}__alt${ext}`);
+      }
+    }),
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+      if (file.mimetype.startsWith('image/')) cb(null, true);
+      else cb(new Error('Only image files are allowed'));
+    }
+  });
+  const altRefUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+  function removeAltAvatarFiles(safeName) {
+    try {
+      for (const f of fs.readdirSync(AVATAR_DIR)) {
+        if (path.basename(f, path.extname(f)) === `${safeName}__alt`) fs.unlinkSync(path.join(AVATAR_DIR, f));
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  function ensureAltForm(card) {
+    if (!card.altForm || typeof card.altForm !== 'object') {
+      card.altForm = { label: 'Alternate', appearance: '', avatarDescription: '', falReferenceImage: '', falReferenceImages: [] };
+    }
+    if (!Array.isArray(card.altForm.falReferenceImages)) card.altForm.falReferenceImages = [];
+    return card.altForm;
+  }
+
+  // Upload the stashed form's avatar picture
+  app.post('/api/companions/:name/avatar-alt',
+    (req, res, next) => { removeAltAvatarFiles(req.params.name.toLowerCase().replace(/[^a-z0-9]/g, '_')); next(); },
+    altAvatarUpload.single('avatar'),
+    (req, res) => {
+      if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+      res.json({ url: `/api/companions/${encodeURIComponent(req.params.name)}/avatar-alt` });
+    }
+  );
+
+  // Remove the stashed form's avatar picture
+  app.delete('/api/companions/:name/avatar-alt', (req, res) => {
+    removeAltAvatarFiles(req.params.name.toLowerCase().replace(/[^a-z0-9]/g, '_'));
+    res.json({ success: true });
+  });
+
+  // Add a face reference photo to the stashed form (up to 4)
+  app.post('/api/companions/:name/form/alt/reference-image', (req, res) => {
+    altRefUpload.single('image')(req, res, (uploadErr) => {
+      if (uploadErr) {
+        if (uploadErr instanceof multer.MulterError && uploadErr.code === 'LIMIT_FILE_SIZE') {
+          return res.status(413).json({ error: 'The image you are trying to upload is too large' });
+        }
+        return res.status(400).json({ error: uploadErr.message || 'Upload failed' });
+      }
+      try {
+        if (!req.file) return res.status(400).json({ error: 'No image file received' });
+        const name = req.params.name;
+        const card = getCompanion(name);
+        const alt = ensureAltForm(card);
+        if (alt.falReferenceImages.length >= ALT_MAX_FACE_REFS) {
+          return res.status(400).json({ error: `Up to ${ALT_MAX_FACE_REFS} reference photos per form` });
+        }
+        const safeName = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        const ext = (req.file.originalname.match(/\.(jpe?g|png|webp|gif)$/i)?.[0] || '.png').toLowerCase();
+        const filename = `${safeName}_altform_${Date.now()}${ext}`;
+        const refDir = path.join(DATA_DIR, 'reference_images');
+        if (!fs.existsSync(refDir)) fs.mkdirSync(refDir, { recursive: true });
+        fs.writeFileSync(path.join(refDir, filename), req.file.buffer);
+        alt.falReferenceImages.push(filename);
+        alt.falReferenceImage = alt.falReferenceImages[0];
+        saveCompanion(name, card);
+        console.log(`📸 Saved alt-form reference image for ${name}: ${filename}`);
+        return res.json({ success: true, files: alt.falReferenceImages, max: ALT_MAX_FACE_REFS });
+      } catch (e) {
+        return res.status(500).json({ error: `Upload failed: ${e.message}` });
+      }
+    });
+  });
+
+  // Remove a face reference photo from the stashed form
+  app.post('/api/companions/:name/form/alt/remove-reference-image', (req, res) => {
+    try {
+      const name = req.params.name;
+      const filename = req.body && req.body.filename ? path.basename(String(req.body.filename)) : '';
+      if (!filename) return res.status(400).json({ error: 'filename is required' });
+      const card = getCompanion(name);
+      const alt = ensureAltForm(card);
+      alt.falReferenceImages = alt.falReferenceImages.filter(f => f !== filename);
+      alt.falReferenceImage = alt.falReferenceImages[0] || '';
+      saveCompanion(name, card);
+      // Only delete the file if no card — live fields or stashed altForm — still points at it
+      let stillUsed = false;
+      try {
+        for (const f of fs.readdirSync(COMPANION_DIR)) {
+          if (!f.endsWith('.json')) continue;
+          if (fs.readFileSync(path.join(COMPANION_DIR, f), 'utf8').includes(`"${filename}"`)) { stillUsed = true; break; }
+        }
+      } catch (e) { /* best effort */ }
+      if (!stillUsed) { try { fs.unlinkSync(path.join(DATA_DIR, 'reference_images', filename)); } catch (e) { /* already gone */ } }
+      return res.json({ success: true, files: alt.falReferenceImages, max: ALT_MAX_FACE_REFS });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
   });
 
   // Export a companion — character card + history + avatar as base64

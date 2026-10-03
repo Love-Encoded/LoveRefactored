@@ -4,6 +4,8 @@
 
 'use strict';
 
+const { buildCurrentFormBlock } = require('../lib/system-prompt');
+
 /**
  * @param {import('express').Application} app
  * @param {object} deps
@@ -513,6 +515,7 @@ function registerParlorRoutes(app, deps) {
         }
       }
 
+      systemStable += buildCurrentFormBlock(card);
       systemStable += `\n\n[THE PARLOR — Cross-instance multiplayer. There are humans and AI companions from different machines here. Stay in character; react to what people actually said.]`;
 
       let systemDynamic = '';

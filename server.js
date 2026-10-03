@@ -28,6 +28,7 @@ const fs = require('fs');
 const path = require('path');
 const {
   buildChatSystemStable,
+  buildCurrentFormBlock,
   buildChatSystemDynamicCore,
   appendGuestSessionBlock,
   finalizeChatSystemPrompt,
@@ -2003,6 +2004,23 @@ function savePersona(data) {
 // kept as an alias for the first entry so older code and clients keep working.
 const MAX_FACE_REFS = 4;
 
+function faceFileReferenced(obj, filename) {
+  if (!obj || typeof obj !== 'object' || !filename) return false;
+  const names = [];
+  const add = (v) => {
+    const b = path.basename(String(v || '').trim());
+    if (b) names.push(b);
+  };
+  add(obj.falReferenceImage);
+  if (Array.isArray(obj.falReferenceImages)) obj.falReferenceImages.forEach(add);
+  const alt = obj.altForm;
+  if (alt && typeof alt === 'object') {
+    add(alt.falReferenceImage);
+    if (Array.isArray(alt.falReferenceImages)) alt.falReferenceImages.forEach(add);
+  }
+  return names.includes(filename);
+}
+
 function refImageList(obj) {
   const raw = [];
   if (obj && obj.falReferenceImage) raw.push(obj.falReferenceImage);
@@ -2176,6 +2194,9 @@ function getContextMessageLimit(card, mode) {
  * full card or custom override; else same as 1:1 text stable (without tools block — voice paths add their own framing).
  */
 function buildVoiceCallIdentityStable(card, companion, persona) {
+  return buildVoiceCallIdentityBody(card, companion, persona) + buildCurrentFormBlock(card);
+}
+function buildVoiceCallIdentityBody(card, companion, persona) {
   if (useGroupChatProfile(card)) {
     const va = String(card.voiceAnchor).trim();
     if (companionUsesCustomSystemPrompt(card)) {
@@ -7437,6 +7458,8 @@ app.post('/group-chat', async (req, res) => {
       }
     }
 
+    systemStable += buildCurrentFormBlock(card);
+
     let systemDynamic = '';
     if (shouldInjectContext(card, 'customIncludeDatetime')) {
       systemDynamic += `${await getCurrentDateTimeString()}\n\n`;
@@ -7807,6 +7830,8 @@ app.post('/group-chat-reroll', async (req, res) => {
       systemStable += `\n\n[VOICE ANCHOR — Your distinct speech patterns in groups; do not adopt others' mannerisms.]\n${card.voiceAnchor.trim()}\n[END VOICE ANCHOR]`;
     }
   }
+
+  systemStable += buildCurrentFormBlock(card);
 
   let systemDynamic = '';
   if (shouldInjectContext(card, 'customIncludeDatetime')) {
@@ -8356,9 +8381,9 @@ app.post('/api/remove-reference-image', express.json(), (req, res) => {
     try {
       for (const f of fs.readdirSync(COMPANION_DIR)) {
         if (!f.endsWith('.json')) continue;
-        try { const other = JSON.parse(fs.readFileSync(path.join(COMPANION_DIR, f), 'utf8')); if (refImageList(other).includes(filename)) { stillUsed = true; break; } } catch (e) { /* skip */ }
+        try { const other = JSON.parse(fs.readFileSync(path.join(COMPANION_DIR, f), 'utf8')); if (faceFileReferenced(other, filename)) { stillUsed = true; break; } } catch (e) { /* skip */ }
       }
-      if (!stillUsed && refImageList(getPersona()).includes(filename)) stillUsed = true;
+      if (!stillUsed && faceFileReferenced(getPersona(), filename)) stillUsed = true;
     } catch (e) { /* best effort */ }
     if (!stillUsed) { try { fs.unlinkSync(path.join(DATA_DIR, 'reference_images', filename)); } catch (e) { /* already gone */ } }
     console.log(`🗑️ Removed reference image ${filename} from ${companionName} (${list.length} left${stillUsed ? ', file kept — still in use elsewhere' : ''})`);
