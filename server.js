@@ -9927,10 +9927,21 @@ app.post('/api/generate-video', async (req, res) => {
   // If mode is 'text-to-video' (or no imageUrl), generate an image first via the existing image gen pipeline.
   let resolvedImageUrl = null;
 
+  // Pull the gallery filename out of either URL shape the UI uses:
+  //   /api/gallery-image/<file>   or   /api/companions/<name>/gallery/<file>
+  const galleryFilenameFromUrl = (u) => {
+    if (!u) return null;
+    const clean = String(u).split('?')[0];
+    let m = clean.match(/\/api\/gallery-image\/([^/]+)$/);
+    if (!m) m = clean.match(/\/api\/companions\/[^/]+\/gallery\/([^/]+)$/);
+    return m ? decodeURIComponent(m[1]) : null;
+  };
+
   if (imageUrl) {
-    // Convert local gallery URLs to base64 data URIs since fal can't reach localhost
-    if (imageUrl.includes('/api/gallery-image/')) {
-      const filename = decodeURIComponent(imageUrl.split('/api/gallery-image/')[1]);
+    const galleryFilename = galleryFilenameFromUrl(imageUrl);
+    // Convert local gallery URLs to base64 data URIs since fal/Replicate can't reach localhost
+    if (galleryFilename) {
+      const filename = galleryFilename;
       const filePath = path.join(GALLERY_DIR, filename);
       if (fs.existsSync(filePath)) {
         const imgBuffer = fs.readFileSync(filePath);
@@ -9944,10 +9955,10 @@ app.post('/api/generate-video', async (req, res) => {
       } else {
         return res.json({ error: `Local image not found: ${filename}` });
       }
-    } else if (imageUrl.startsWith('http')) {
+    } else if (imageUrl.startsWith('http') || imageUrl.startsWith('data:')) {
       resolvedImageUrl = imageUrl;
     } else {
-      resolvedImageUrl = imageUrl;
+      return res.json({ error: `Unrecognized image URL for video: ${imageUrl}` });
     }
   } else {
     // No source image — generate one first using the existing image gen pipeline
@@ -10013,9 +10024,9 @@ app.post('/api/generate-video', async (req, res) => {
 
   // === STEP 1.5: Look up the original image prompt from gallery metadata ===
   let sourceImagePrompt = '';
-  if (imageUrl && imageUrl.includes('/api/gallery-image/')) {
+  if (imageUrl && galleryFilenameFromUrl(imageUrl)) {
     try {
-      const filename = decodeURIComponent(imageUrl.split('/api/gallery-image/')[1]);
+      const filename = galleryFilenameFromUrl(imageUrl);
       const meta = getGalleryMeta(safeName);
       if (meta[filename] && meta[filename].prompt) {
         sourceImagePrompt = meta[filename].prompt;
