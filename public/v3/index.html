@@ -2698,11 +2698,11 @@ html.kiosk #kiosk-eye.on{background:var(--live);opacity:1;box-shadow:0 0 10px va
             <div class="cfg-sub">Profile</div>
             <p class="hint" style="margin-bottom:var(--s3)">One line of facts, injected as <code>[PROFILE]</code>. All optional.</p>
             <div class="cp-profile" id="cp-profile">
-              <div class="field"><label for="cp-birthday">Birthday</label><input class="inp" id="cp-birthday" data-prop="birthday" placeholder="March 3, 1988"></div>
-              <div class="field"><label for="cp-zodiac">Zodiac</label><input class="inp" id="cp-zodiac" data-prop="zodiac" placeholder="Pisces sun, Scorpio moon"></div>
-              <div class="field"><label for="cp-mbti">MBTI</label><input class="inp" id="cp-mbti" data-prop="mbti" placeholder="ENFP"></div>
-              <div class="field"><label for="cp-enneagram">Enneagram</label><input class="inp" id="cp-enneagram" data-prop="enneagram" placeholder="7w8"></div>
-              <div class="field" style="grid-column:1/-1"><label for="cp-archetypes">Archetypes</label><input class="inp" id="cp-archetypes" data-prop="archetypes" placeholder="the caretaker who won't be taken care of · the trickster with a ledger"></div>
+              <div class="field"><label for="cp-birthday">Birthday</label><input class="inp" id="cp-birthday" data-prop="birthday" placeholder="ex. November 17, 1992"></div>
+              <div class="field"><label for="cp-zodiac">Zodiac</label><input class="inp" id="cp-zodiac" data-prop="zodiac" placeholder="ex. Aries sun, Pisces moon"></div>
+              <div class="field"><label for="cp-mbti">MBTI</label><input class="inp" id="cp-mbti" data-prop="mbti" placeholder="ex. ISFP"></div>
+              <div class="field"><label for="cp-enneagram">Enneagram</label><input class="inp" id="cp-enneagram" data-prop="enneagram" placeholder="ex. 5w4"></div>
+              <div class="field" style="grid-column:1/-1"><label for="cp-archetypes">Archetypes</label><input class="inp" id="cp-archetypes" data-prop="archetypes" placeholder="ex. the wanderer who always comes home · the quiet one with the loudest opinions"></div>
             </div>
 
             <div class="cfg-sub">Identity</div>
@@ -2711,14 +2711,23 @@ html.kiosk #kiosk-eye.on{background:var(--live);opacity:1;box-shadow:0 0 10px va
             <div class="cfg-sub">Underneath</div>
             <div id="fields-depth"></div>
 
-            <div class="cfg-sub">Voice</div>
-            <div id="fields-voice"></div>
-
             <div class="cfg-sub">For the image generator</div>
             <div id="fields-look"></div>
+            <div class="field">
+              <label>Reference face photos <span class="inh">up to 4</span></label>
+              <p class="hint">One front-facing, one three-quarter, one in different light — the image model combines them to lock the face. No sunglasses. Stored locally. Used for couple and group photos, and for any generation without a LoRA.</p>
+              <div class="facestrip" id="t-face" data-fs-kind="companion"></div>
+              <span class="runs" id="t-face-status"></span>
+            </div>
+
+            <div class="cfg-sub">Seen &amp; heard</div>
+            <div id="fields-shown"></div>
 
             <div class="cfg-sub">You, to them</div>
             <div id="fields-persona"></div>
+
+            <div class="cfg-sub">Voice</div>
+            <div id="fields-voice"></div>
 
             <div class="cfg-sub">Context budget</div>
             <p class="hint" style="margin-bottom:var(--s4)">How much of the past rides along on every turn. Empty inherits the server default.</p>
@@ -3169,12 +3178,7 @@ html.kiosk #kiosk-eye.on{background:var(--live);opacity:1;box-shadow:0 0 10px va
               <input class="inp" id="t-ref" value="" placeholder="Not set" style="max-width:520px"></div>
             <div class="field"><label for="t-fal">fal.ai LoRA URL <span class="inh">cloud</span></label>
               <input class="inp" id="t-fal" value="" placeholder="Not set" style="max-width:640px"></div>
-            <div class="field">
-              <label>Reference face photos <span class="inh">up to 4</span></label>
-              <p class="hint">One front-facing, one three-quarter, one in different light — the image model combines them to lock the face. No sunglasses. Stored locally. Used for couple and group photos, and for any generation without a LoRA.</p>
-              <div class="facestrip" id="t-face" data-fs-kind="companion"></div>
-              <span class="runs" id="t-face-status"></span>
-            </div>
+            <p class="hint" style="margin-top:var(--s3)">Reference face photos live on the <b>Character</b> tab, under Appearance.</p>
             <div class="field" style="margin-top:var(--s5)">
               <label for="t-anam">Animated avatar ID <span class="inh">video calls</span></label>
               <p class="hint">From anam.ai. Enables video calls for this companion.</p>
@@ -6763,11 +6767,11 @@ function obBuild(){
       body=(st.found?'<div class="ob-found" id="ob-found">'+FOUND.map(function(f){ return '<button type="button" data-f="'+f[0]+'" aria-pressed="false">'+f[1]+'<small>'+f[2]+'</small></button>'; }).join('')+'</div>':'')+
         '<div class="field"><textarea class="inp" data-ob="'+(st.k==='bring'?st.k:st.prop)+'" placeholder="'+esc(st.ph)+'"></textarea></div>'+
         (st.profile?'<div class="ob-prof">'+
-          '<div class="field"><label>Birthday</label><input class="inp" data-ob="birthday" placeholder="March 3, 1988"></div>'+
-          '<div class="field"><label>Zodiac</label><input class="inp" data-ob="zodiac" placeholder="Pisces sun, Scorpio moon"></div>'+
-          '<div class="field"><label>MBTI</label><input class="inp" data-ob="mbti" placeholder="ENFP"></div>'+
-          '<div class="field"><label>Enneagram</label><input class="inp" data-ob="enneagram" placeholder="7w8"></div>'+
-          '<div class="field wide"><label>Archetypes</label><input class="inp" data-ob="archetypes" placeholder="the caretaker who won\'t be taken care of · the trickster with a ledger"></div></div>':'');
+          '<div class="field"><label>Birthday</label><input class="inp" data-ob="birthday" placeholder="ex. November 17, 1992"></div>'+
+          '<div class="field"><label>Zodiac</label><input class="inp" data-ob="zodiac" placeholder="ex. Aries sun, Pisces moon"></div>'+
+          '<div class="field"><label>MBTI</label><input class="inp" data-ob="mbti" placeholder="ex. ISFP"></div>'+
+          '<div class="field"><label>Enneagram</label><input class="inp" data-ob="enneagram" placeholder="ex. 5w4"></div>'+
+          '<div class="field wide"><label>Archetypes</label><input class="inp" data-ob="archetypes" placeholder="ex. the wanderer who always comes home · the quiet one with the loudest opinions"></div></div>':'');
     }
     return body;
   }
@@ -8010,37 +8014,38 @@ identity:[
  {label:'Boundaries', where:'system · early', prop:'boundaries',
   hint:'Hard limits this character will never cross, no matter what — topics off the table, lines that don\'t get blurred.'},
  {label:'Personality &amp; Voice', where:'system · early', prop:'personalityVoice',
-  hint:'How they talk and act — their tone, quirks, speech patterns, and emotional temperature.'},
- {label:'Group Chat Profile', where:'groups &amp; calls only', prop:'voiceAnchor',
-  hint:'Condensed identity for group chat and voice calls — personality, key facts, speech style. When filled in, group chat uses only this profile instead of the full card.'}],
+  hint:'How they talk and act — their tone, quirks, speech patterns, and emotional temperature.'}],
 depth:[
  {label:'Emotional Engine', where:'system · early', prop:'emotionalEngine',
   hint:'How they feel — and how feeling shows. The layer most characters skip and the one that makes them human. Pairs with the Emotional tab: Analyze reads this first.'},
- {label:'Values', where:'system · early', prop:'values',
+ {label:'Values &amp; Morality', where:'system · early', prop:'values',
   hint:'The bedrock under every choice and reaction. Name the two or three moral foundations that drive most decisions, then what they look like in practice.'},
  {label:'Decision Making', where:'system · early', prop:'decisionMaking',
   hint:'How they move through a choice — gut or ledger, fast or slow, who they consult, what they refuse to weigh. Gives them agency that feels theirs.'},
  {label:'Daily Rhythms', where:'system · early', prop:'dailyRhythms',
   hint:'How they move through a day. Coffee or energy drink? Night owl? What a good Tuesday looks like, and a bad one.'},
  {label:'Tells &amp; Tics', where:'system · early', prop:'tellsTics',
-  hint:'Nails picked when nervous, tea as a ritual, doom-scrolling at 2am. The small physical habits that give them away.'},
- {label:'Camera Eye', where:'system · early', prop:'cameraEye',
-  hint:'How they see the world and document it — what they notice first, what they photograph, what they\'d never bother to.'}],
-voice:[
- {label:'Speech Patterns', where:'1:1 · very end', prop:'speechPatterns',
-  hint:'Reinforced at the very end of 1:1 chat — the last thing the model reads. Use for capitalization rules, accent conventions, filler words, sentence structure, anti-blend locks.'},
- {label:'Response Directive', where:'LAST instruction', prop:'responseDirective',
-  hint:'Injected as the LAST instruction before the model writes. Extremely high influence. Use for speech patterns, length limits, style rules. This is your most powerful knob for voice control.'},
- {label:'Voice Call Directive', where:'calls only', prop:'voiceCallDirective',
-  hint:'Injected at the end of the system prompt during voice calls only — text chat is unaffected. Use for call-specific framing like "phone call, keep it short".'},
- {label:'Example Messages', where:'system · early', prop:'exampleMessages',
-  hint:'A few sample lines in their actual voice — the model imitates what it sees here, so make these sound exactly like them.'}],
+  hint:'Nails picked when nervous, tea as a ritual, doom-scrolling at 2am. The small physical habits that give them away.'}],
 look:[
  {label:'Appearance', where:'never sent to the model', prop:'appearance',
   hint:'Their physical description — used only to feed the image generator; the companion never sees this.'}],
+shown:[
+ {label:'Example Messages', where:'system · early', prop:'exampleMessages',
+  hint:'A few sample lines in their actual voice — the model imitates what it sees here, so make these sound exactly like them.'},
+ {label:'Camera Eye', where:'system · early', prop:'cameraEye',
+  hint:'How they see the world and document it — what they notice first, what they photograph, what they\'d never bother to.'}],
 persona:[
- {label:'User persona override', where:'system · early', prop:'userPersonaOverride',
+ {label:'User Persona Override', where:'system · early', prop:'userPersonaOverride',
   hint:'How THIS companion sees you, replacing your global persona — useful when different characters should know different sides of you. Leave empty to use Settings → User Persona.'}],
+voice:[
+ {label:'Voice Call Directive', where:'calls only', prop:'voiceCallDirective',
+  hint:'Injected at the end of the system prompt during voice calls only — text chat is unaffected. Use for call-specific framing like "phone call, keep it short".'},
+ {label:'Group Chat Profile', where:'groups &amp; calls only', prop:'voiceAnchor',
+  hint:'Condensed identity for group chat and voice calls — personality, key facts, speech style. When filled in, group chat uses only this profile instead of the full card.'},
+ {label:'Speech Patterns', where:'1:1 · very end', prop:'speechPatterns',
+  hint:'Reinforced at the very end of 1:1 chat — the last thing the model reads. Use for capitalization rules, accent conventions, filler words, sentence structure, anti-blend locks.'},
+ {label:'Response Directive', where:'LAST instruction', prop:'responseDirective',
+  hint:'Injected as the LAST instruction before the model writes. Extremely high influence. Use for speech patterns, length limits, style rules. This is your most powerful knob for voice control.'}],
 custom:[
  {label:'Custom system prompt', where:'replaces everything above', prop:'systemPromptOverride',
   hint:'Your text replaces the entire built-from-card prompt. Context injections below still ride along.'}],

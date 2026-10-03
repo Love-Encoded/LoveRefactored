@@ -176,3 +176,4 @@ voice_call_*.json
 data.LOCAL-BACKUP-*/
 .claude/
 data.*
+package-lock.json
