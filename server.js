@@ -10073,7 +10073,8 @@ Write the motion prompt for this character and scene.`;
           aspect_ratio: '16:9',
           negative_prompt: 'blur, distort, low quality, static, frozen',
           cfg_scale: 0.5,
-          sound: generateAudio
+          // Model default is true. `sound` is not an input and is ignored.
+          generate_audio: generateAudio
         }
       });
 
