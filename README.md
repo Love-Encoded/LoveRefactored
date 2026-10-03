@@ -41,9 +41,10 @@ For the open 1:1 companion:
 
 - **Call** — live voice (ElevenLabs Conversational AI, or Fish / Pipecat).
 - **Video call** — Anam talking-head, using the same ElevenLabs agent under the hood.
-- **Gallery** — that companion's images (generated and uploaded).
+- **Gallery** — that companion's images (generated and uploaded). Same panel as the card's Gallery.
 - **Spotify** — opens the Now Playing dock when connected.
 - **Character card** — full card on the stage.
+- **Form** — when they have a second form, a chip names the live one and the other (`Human ⇄ Wolf`) and switches.
 - **More** — companion info, export chat, debug log (`D` when not typing), LLM payload viewer, memory audit, log out (when auth is on), clear this chat. In a group: also **Remove duplicate replies**.
 - **Memory** — opens the memory sheet (counts, category chips, recent memories) with a jump to the **galaxy**.
 
@@ -53,7 +54,7 @@ For the open 1:1 companion:
 - **Attachments** — images, short video clips (server extracts key frames + optional Whisper transcript for model context), and documents (PDF, DOCX, text, markdown) with extraction. **Vision** paths send images to the active LLM where supported. When the chat model is not vision-capable, optional **image understanding** runs a dedicated vision pass and injects an observational summary.
 - Message actions: **copy**, **favourite**, **edit**, **reroll**, **reroll with a note**, **save to journal**, **delete**, and **memories used** (which Tanevan rows were injected for that reply).
 - Favourites persist on the message; hearted lines stay marked in the thread.
-- **Reroll** drops the companion's reply (and everything after it) and asks again from the same user turn. A note steers the retry.
+- **Reroll** cuts the thread at that reply and asks again from the same user turn. A note steers the retry. The dropped text stays: the new message keeps every version (up to **12**), and a `‹ 1 · 2 · 3 ›` pager under the bubble chooses which one is showing. Tanevan's buffer is rewritten only for the **last** companion line, and only to the version that is showing. Flipping an older message leaves memory alone. Editing the showing version replaces that slot in the set.
 - Tool-style tags companions can emit in replies (stripped before you see them):
   - `[react: …]` — emoji reaction
   - `[gif: …]` — Klipy GIF search (when a Klipy key is set)
@@ -78,7 +79,7 @@ Create from the sidebar. A group needs a **name** and at least **two** members.
 - Optional **scene** (`[GROUP SCENE]`) and **directive** (`[GROUP RULES]` — default keeps replies short and leaves room for others).
 - **Shared memory** — when on, group turns buffer into each member's Tanevan store so 1:1 memory includes what happened in the room.
 - An LLM router picks **1–5** natural responders per turn (not everyone every time), using each member's **Group Chat Profile** (voice anchor) when filled — or the full card if “group chat uses only the profile” is off.
-- Composer: attach, **take a group photo** (membership-aware; optional “include me” from your persona face refs).
+- Composer: attach, **take a group photo** (membership-aware). **Include yourself** is read when you take the shot, and the dialog remembers the last choice. It needs persona face refs; without them the toggle stays off and you are left out of the frame. When you are not in the shot, the prompt writer is told not to name or describe you. If a draft still contains your name, it is retried once and discarded if your name remains.
 - Per-message **reroll** (`POST /group-chat-reroll`). Group replies can emit `[react:]`, `[gif:]`, `[journal:]`, `[calendar:]`, `[spotify-search:]`, `[search:]` (Brave key), `[visit:]`, `[camera:]`, and `[post:]`. Group chat does not run 1:1 `[photo:]` / `[us:]` selfies.
 - Export from the header menu (JSON).
 
@@ -121,12 +122,14 @@ Opened from the header. Left rail, grouped. Every long field shows **where it la
 - Avatar upload (JPG/PNG/GIF, 5 MB) and fallback emoji.
 - **Colour** — house palette or custom hex, with a live message preview.
 - **Collections** — which named sidebar groups they belong to (they can be in several).
-- **Profile** line, injected as `[PROFILE]`: birthday, zodiac, MBTI, enneagram, archetypes (all optional).
-- **Identity:** backstory, boundaries, personality & voice, **Group Chat Profile** (`voiceAnchor` — condensed identity for groups and calls).
-- **Underneath:** emotional engine, values (moral foundations), decision making, daily rhythms, tells & tics, camera eye.
-- **Voice:** speech patterns (re-anchored at the **end** of 1:1), **response directive** (last instruction before the model writes — highest-influence knob), **voice call directive** (calls only), example messages (`*asterisk*` actions render as narration).
-- **Appearance** — physical description for the **image generator only**; the chat model never sees it.
+- **Profile** line, injected as `[PROFILE]`: birthday, zodiac, MBTI, enneagram, archetypes (all optional; placeholders read as examples).
+- **Identity:** backstory, boundaries, personality & voice.
+- **Underneath:** emotional engine, **Values & Morality**, decision making, daily rhythms, tells & tics.
+- **For the image generator:** **Appearance** (the chat model never sees it) and up to **four reference face photos**. The Technical tab points here; it no longer holds the uploader.
+- **Alternate form** — one second body (a shifter, a glamour, another age). It keeps its own appearance, face photos, and avatar. Switching swaps those with the live set; the rest of the card stays. Name both forms. **Tell them which form they're in** (on by default) adds one `[CURRENT FORM]` line to 1:1, group, voice, and Parlor prompts: which body is live, and the name of the other. Off, the pictures still change and the model is not told. Removing the second form keeps the current look and deletes the other form's appearance, photos, and avatar.
+- **Seen & heard:** example messages (`*asterisk*` actions render as narration), camera eye.
 - **You, to them** — per-companion **user persona override** (otherwise the global persona is used).
+- **Voice:** **voice call directive** (calls only), **Group Chat Profile** (`voiceAnchor` — condensed identity for groups and calls), speech patterns (re-anchored at the **end** of 1:1), **response directive** (last instruction before the model writes — highest-influence knob).
 - **Context budget:** chat history message count (empty = server default **30**), memories injected, memory token budget (empty = server default).
 - **Time-gap awareness** — injects how long it's been since the last message (default off; leave off for roleplay that time-skips).
 - **Group chat uses only the profile** — send the Group Chat Profile instead of the full card.
@@ -223,7 +226,7 @@ Per-companion overrides; empty inherits Settings.
 
 - Provider, model (combobox + per-provider **favourites**), optional API key and custom base URL (do **not** include `/v1`). A custom endpoint **requires** a model name; LM Studio may be left blank.
 - Temperature override, max tokens for chat and for Creative Studio. The **Extended reasoning** toggle is saved on the card; chat does not read it. Claude 5-family thinking is pinned instead (see Settings, LLM providers).
-- Image **method**: auto / trained LoRA / reference image / description only. LoRA path + trigger (ComfyUI), LoRA scale/id (Replicate), PuLID reference path, **fal LoRA URL**, up to **four reference face photos**.
+- Image **method**: auto / trained LoRA / reference image / description only. LoRA path + trigger (ComfyUI), LoRA scale/id (Replicate), PuLID reference path, **fal LoRA URL**. Face photos live under Appearance on the Character tab.
 - **Anam avatar ID** for video calls.
 - Voice memos / voice calls provider overrides; Fish voice ID, ElevenLabs **voice ID** and **agent ID** (agent ID required for live calls and Anam), Chatterbox/NeuTTS reference clip.
 - Calendar colour (defaults to their hue).
@@ -235,7 +238,7 @@ Per-companion overrides; empty inherits Settings.
 
 #### Everything of theirs
 
-- **Gallery** — all / selfies / uploaded, tag filter, private, select; scene hint; **Include me** couple shot; upload; generate selfie; generate video.
+- **Gallery** — the header Gallery and this section are one panel: all / selfies / uploaded, tag filter, private shelf, select. Scene hint. **Include me** is read when you generate the selfie, not while the chip is only toggled. Upload, generate selfie, generate video.
 - **Journal** — that companion's scrapbook: text, photos, documents; burst grouping; merge selected; write as you or them.
 - **Chat & data** — message/memory counts; **import chat history into memory** (SillyTavern, Love Refactored, or any JSON with role/content; ≥4 messages); open the **Vault**; **trim** active history (default keep last 20; flush to Tanevan first; permanent log untouched); **clear** active chat (flush first); **export companion** (card + active history + avatar).
 
@@ -305,7 +308,7 @@ Cross-instance rooms over the network (**Socket.IO** on `/parlor-io`).
 
 A **document** (canonical draft, attributed blocks) plus a **green room** (talk about the writing).
 
-- Multiple projects; collaborators; you can be a named contributor.
+- Multiple projects; collaborators. **Include yourself** makes you a named contributor. That switch is saved with the project when you save the people list.
 - Ask a companion to contribute — they wrap prose in **`[doc-add]…[/doc-add]`** and **`[doc-edit-BLOCKID]…[/doc-edit]`**. A colon fallback (`[doc-add: …]`) is still accepted. **Just note it** stays in the green room only.
 - **Auto session** — companions take turns for N rounds (1–10) without you.
 - **History** — automatic snapshots before each document change, plus named saves. Preview and restore any draft; the current page is kept first. Stored beside the project as `data/creative_projects/<id>.versions/`.
@@ -343,6 +346,7 @@ Local TTS is **not** started by `./start.sh`. See **`voice/README.md`**.
 - **Replicate** — Flux / Flux LoRA, Ideogram Character, Nano Banana-style multi-person shots from face refs; Kling video on the same account.
 - LLM-authored scene prompts from recent chat (or the gallery scene hint), written for portrait-style generators (Nano Banana Pro / Flux). DALL·E / custom HTTP can be stored in Settings; **end-to-end generation is wired for ComfyUI, fal.ai, and Replicate**.
 - When the **image prompt writer** is **LM Studio**, solo and group shots use the small-model templates in **`lib/image-prompts-small.js`**: slot-based, no prose example to copy, explicit pronouns per person, clothing priority (current outfit, then the scene, then the default). Every other prompt-writer provider keeps the full prompts in **`lib/image-prompts.js`**.
+- A multi-person shot you are not in tells the prompt writer not to name or describe you. If the draft still contains your name, it retries once and discards that draft if your name is still there.
 
 ### Spotify
 
