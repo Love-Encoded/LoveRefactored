@@ -8722,6 +8722,7 @@ app.post('/api/generate-image', async (req, res) => {
           const recentMessages = multiRecentMessages;
 
           try {
+            const excludeUserName = includeUser ? null : (String(getPersona().name || '').trim() || 'the User');
             const useSmallMulti = imagePromptSettings.provider === 'lmstudio';
             const multiPromptSystem = useSmallMulti
               ? buildMultiImagePromptSystemSmall()
@@ -8732,18 +8733,27 @@ app.post('/api/generate-image', async (req, res) => {
                   pronounsList,
                   recentMessages,
                   locationAnchor: multiLocationAnchor,
-                  sceneHint
+                  sceneHint,
+                  excludeUserName
                 })
               : buildMultiImagePromptUser({
                   appearanceList,
                   recentMessages,
                   locationAnchor: multiLocationAnchor,
-                  sceneHint
+                  sceneHint,
+                  excludeUserName
                 });
 
             let generated = await callLLM(multiPromptSystem, [{ role: 'user', content: multiPromptUser }], imagePromptSettings, { maxTokens: 4000, temperature: 0.7, anthropicMeta: promptWriterMeta });
             if (isRepetitiveGarbage(generated)) {
               generated = await callLLM(multiPromptSystem, [{ role: 'user', content: multiPromptUser }], imagePromptSettings, { maxTokens: 4000, temperature: 0.4, anthropicMeta: promptWriterMeta });
+            }
+            /* user-leak guard: the user is not in this photo, so their name must not be in the prompt */
+            if (excludeUserName && generated && new RegExp(`\\b${excludeUserName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(generated)) {
+              console.log(`📷 user-leak guard: prompt named ${excludeUserName} but the user is NOT in this photo — retrying once`);
+              const sternUser = multiPromptUser + `\n\nYOUR PREVIOUS ATTEMPT INCLUDED ${excludeUserName}. ${excludeUserName} is NOT in this photo. Do not name or describe ${excludeUserName} at all.`;
+              const retry = await callLLM(multiPromptSystem, [{ role: 'user', content: sternUser }], imagePromptSettings, { maxTokens: 4000, temperature: 0.4, anthropicMeta: promptWriterMeta });
+              generated = (retry && !new RegExp(`\\b${excludeUserName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(retry)) ? retry : '';
             }
             if (isRepetitiveGarbage(generated)) {
               nbPrompt = buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint);
@@ -9127,6 +9137,7 @@ app.post('/api/generate-image', async (req, res) => {
           const recentMessages = multiRecentMessages;
 
           try {
+            const excludeUserName = includeUser ? null : (String(getPersona().name || '').trim() || 'the User');
             const useSmallMulti = imagePromptSettings.provider === 'lmstudio';
             const multiPromptSystem = useSmallMulti
               ? buildMultiImagePromptSystemSmall()
@@ -9137,18 +9148,27 @@ app.post('/api/generate-image', async (req, res) => {
                   pronounsList,
                   recentMessages,
                   locationAnchor: multiLocationAnchor,
-                  sceneHint
+                  sceneHint,
+                  excludeUserName
                 })
               : buildMultiImagePromptUser({
                   appearanceList,
                   recentMessages,
                   locationAnchor: multiLocationAnchor,
-                  sceneHint
+                  sceneHint,
+                  excludeUserName
                 });
 
             let generated = await callLLM(multiPromptSystem, [{ role: 'user', content: multiPromptUser }], imagePromptSettings, { maxTokens: 4000, temperature: 0.7, anthropicMeta: promptWriterMeta });
             if (isRepetitiveGarbage(generated)) {
               generated = await callLLM(multiPromptSystem, [{ role: 'user', content: multiPromptUser }], imagePromptSettings, { maxTokens: 4000, temperature: 0.4, anthropicMeta: promptWriterMeta });
+            }
+            /* user-leak guard: the user is not in this photo, so their name must not be in the prompt */
+            if (excludeUserName && generated && new RegExp(`\\b${excludeUserName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(generated)) {
+              console.log(`📷 user-leak guard: prompt named ${excludeUserName} but the user is NOT in this photo — retrying once`);
+              const sternUser = multiPromptUser + `\n\nYOUR PREVIOUS ATTEMPT INCLUDED ${excludeUserName}. ${excludeUserName} is NOT in this photo. Do not name or describe ${excludeUserName} at all.`;
+              const retry = await callLLM(multiPromptSystem, [{ role: 'user', content: sternUser }], imagePromptSettings, { maxTokens: 4000, temperature: 0.4, anthropicMeta: promptWriterMeta });
+              generated = (retry && !new RegExp(`\\b${excludeUserName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(retry)) ? retry : '';
             }
             if (isRepetitiveGarbage(generated)) {
               nbPrompt = buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint);
