@@ -1716,7 +1716,7 @@ button.m-stat:hover{background:var(--lamp-hi);border-color:var(--line-lit)}
 .cs-hist-prev h4{font-size:16px;font-weight:700;color:var(--ink);letter-spacing:-.02em;margin:0 0 var(--s3)}
 @media (max-width:620px){.cs-hist{grid-template-columns:1fr;grid-template-rows:38% 1fr}.cs-hist-list{border-right:none;border-bottom:1px solid var(--line)}}
 
-html.who-noimg #compose button[title="Ask for a selfie"],html.who-noimg #gal-selfie,html.who-noimg #gal-video,html.who-noimg #gal-me{opacity:.35;filter:grayscale(1)}
+html.who-noimg #compose button[title="Ask for a selfie"],html.who-noimg [data-gal="selfie"],html.who-noimg [data-gal="video"],html.who-noimg [data-gal="me"]{opacity:.35;filter:grayscale(1)}
 
 .vback{display:flex;align-items:center;padding:8px var(--s5) 0;flex-shrink:0}
 .vback .btn{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;font-size:12px}
@@ -1783,7 +1783,11 @@ html.who-noimg #compose button[title="Ask for a selfie"],html.who-noimg #gal-sel
 .gal-fold .tw{font-size:11px;color:var(--ink-3);width:12px}
 .gal-fold .n{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--ink-3)}
 .gal-fold:hover .lbl{color:var(--ink-2)}
-#galgrid{display:block}
+#galpanel{max-width:1100px}
+.gal-cell.on{outline:2px solid var(--who);outline-offset:-2px}
+.gal-cell.on::after{content:'✓';position:absolute;top:6px;left:6px;width:20px;height:20px;border-radius:999px;background:var(--who);color:#fff;font-size:12px;display:grid;place-items:center}
+.gal-bulk{display:flex;gap:var(--s2);align-items:center;flex-wrap:wrap;margin-bottom:var(--s3)}
+.gal-bulk[hidden]{display:none}
 #galgrid .gal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:4px;margin-bottom:var(--s4)}
 .gal-cell .ph img{border-radius:inherit}
 /* lightbox */
@@ -2456,7 +2460,7 @@ html.kiosk #kiosk-eye.on{background:var(--live);opacity:1;box-shadow:0 0 10px va
     <div class="view" id="v-gallery">
       <div class="vback"><button class="btn ghost" data-view="chat"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 3 5 8l5 5"/></svg>Back to chat</button></div>
       <div class="gal">
-        <div class="gal-grid" id="galgrid"></div>
+        <div id="galpanel"></div>
       </div>
     </div>
 
@@ -3229,23 +3233,7 @@ html.kiosk #kiosk-eye.on{background:var(--live);opacity:1;box-shadow:0 0 10px va
           <!-- ═══ GALLERY ═══ -->
           <section class="cfg-sec" id="sec-cgallery">
             <header><h3>Gallery</h3><p>Everything of theirs — generated and uploaded, in one place.</p></header>
-            <div class="gal-top">
-              <span class="gal-count">— <span>images</span></span>
-              <div class="seg" role="group"><button aria-pressed="true">All</button><button aria-pressed="false">Selfies</button><button aria-pressed="false">Uploaded</button></div>
-              <input class="inp sm" placeholder="Filter by tag…" style="min-width:160px">
-              <button class="chip">Private</button>
-              <button class="chip">Select</button>
-            </div>
-            <div class="gal-scene" id="fields-scene"></div>
-            <div class="gal-actions">
-              <button class="chip" id="gal-me" aria-pressed="false">Include me · couple photo</button>
-              <span class="lbl" id="gal-status" style="margin-left:var(--s3)"></span>
-              <span style="flex:1"></span>
-              <button class="btn ghost" id="gal-upload">Upload</button>
-              <button class="btn primary" id="gal-selfie">Generate selfie</button>
-              <button class="btn ghost" id="gal-video">Generate video</button>
-            </div>
-            <div id="cardgal-wrap"></div>
+            <div id="cardgal-panel"></div>
           </section>
 
           <!-- ═══ JOURNAL ═══ -->
@@ -6991,11 +6979,13 @@ var LB={files:[],i:0,onChange:null};
 function cellFor(f, list){
   var cell=document.createElement('button');
   cell.className='gal-cell';
+  cell.dataset.fn=f.filename||'';
+  if(GAL.sel[f.filename]) cell.classList.add('on');
   var t=thumbUrl(f);
   cell.innerHTML='<div class="ph"><img loading="lazy" decoding="async" src="'+esc(t)+'" alt="" '+
     'style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.style.display=\'none\'"></div>'+
-    (isVideo(f)?'<span class="badge">video</span>':((f.tags||[]).indexOf('couple')>-1?'<span class="badge">couple</span>':''));
-  cell.title=(f.tags&&f.tags.join(', '))||f.filename||'';
+    (isVideo(f)?'<span class="badge">video</span>':(isPrivate(f)?'<span class="badge">private</span>':(tagNames(f).indexOf('couple')>-1?'<span class="badge">couple</span>':'')));
+  cell.title=tagNames(f).join(', ')||f.filename||'';
   cell.addEventListener('click',function(){ openLightbox(list||[f], (list||[f]).indexOf(f)); });
   return cell;
 }
@@ -7016,6 +7006,7 @@ function lbBuild(){
       '<div class="prompt" id="lb-prompt"></div>'+
       '<button class="btn ghost tiny" id="lb-chat">Send to chat</button>'+
       '<button class="btn ghost tiny" id="lb-video">Make a video</button>'+
+      '<button class="btn ghost tiny" id="lb-priv">Make private</button>'+
       '<a class="btn ghost tiny" id="lb-open" target="_blank" rel="noopener">Open original</a>'+
       '<span class="sp"></span>'+
       '<button class="btn danger tiny" id="lb-del">Delete</button>'+
@@ -7056,6 +7047,11 @@ function lbBuild(){
       G.ok('Video ready — it\'s in the gallery.');
     }).catch(function(e){ b.disabled=false; b.textContent='Make a video'; G.toast('Video generation failed: '+G.errMsg(e)); });
   });
+  $('#lb-priv',lbEl).addEventListener('click',function(){
+    var f=LB.files[LB.i]; if(!f||!f.filename) return;
+    setPrivate(f,!isPrivate(f)).then(function(){ lbShow(); if(LB.onChange) LB.onChange(); })
+      .catch(function(e){ G.toast('Could not update: '+G.errMsg(e)); });
+  });
   $('#lb-del',lbEl).addEventListener('click',function(){
     var f=LB.files[LB.i], c=G.cur(); if(!f||!c) return;
     if(!confirm('Delete this from the gallery? There\'s no undo.')) return;
@@ -7083,6 +7079,8 @@ function lbShow(){
   $('#lb-prompt',lbEl).textContent=f.prompt||'';
   $('#lb-open',lbEl).href=f.url;
   $('#lb-video',lbEl).style.display=isVideo(f)?'none':'';
+  $('#lb-priv',lbEl).textContent=isPrivate(f)?'Make public':'Make private';
+  $('#lb-priv',lbEl).style.display=f.filename?'':'none';
   $('#lb-prev',lbEl).style.visibility=LB.i>0?'visible':'hidden';
   $('#lb-next',lbEl).style.visibility=LB.i<LB.files.length-1?'visible':'hidden';
 }
@@ -7125,18 +7123,197 @@ function renderGallery(box, files, opts){
 }
 G.renderGallery=renderGallery;
 
-function drawGallery(){
-  var box=$('#galgrid'); if(!box) return;
-  var c=G.cur();
-  if(!c){ box.innerHTML='<p class="emptyish">No companions yet.</p>'; return; }
-  box.innerHTML='<p class="emptyish">Loading…</p>';
-  G.quiet(G.jget('/api/companions/'+encodeURIComponent(c.name)+'/gallery'), []).then(function(files){
-    if(!Array.isArray(files)) files=[];
-    var t=$('#topsub'); if(t&&G.cur()===c) t.textContent=files.length+' image'+(files.length===1?'':'s');
-    renderGallery(box, files, {onChange:drawGallery});
+/* ═══════════ SHARED GALLERY PANEL — one gallery, mounted in the top bar AND the card ═══════════ */
+var PRIVATE_TAG={name:'Private',color:'#8b1a1a'};
+function tagNames(f){ return (f.tags||[]).map(function(t){ return String(typeof t==='string'?t:(t&&t.name)||'').toLowerCase(); }); }
+function isPrivate(f){ return tagNames(f).indexOf('private')>-1; }
+G.isPrivateFile=isPrivate;
+
+var GAL={files:[],name:null,source:'all',tag:'',showPrivate:false,select:false,sel:{}};
+var GAL_HOSTS=[];
+function galReset(){ GAL.source='all'; GAL.tag=''; GAL.showPrivate=false; GAL.select=false; GAL.sel={}; }
+
+function galFetch(){
+  var c=G.cur(); if(!c){ GAL.files=[]; GAL.name=null; return Promise.resolve([]); }
+  if(GAL.name!==c.name){ galReset(); GAL.name=c.name; }
+  return G.quiet(G.jget('/api/companions/'+encodeURIComponent(c.name)+'/gallery'),[]).then(function(files){
+    GAL.files=Array.isArray(files)?files:[]; return GAL.files;
   });
 }
+/* Private is a shelf: off = private pics never show; on = ONLY private pics show */
+function galFiltered(){
+  var q=GAL.tag.toLowerCase();
+  return GAL.files.filter(function(f){
+    if(isPrivate(f)!==GAL.showPrivate) return false;
+    if(GAL.source==='selfies' && f.source==='uploaded') return false;
+    if(GAL.source==='uploaded' && f.source!=='uploaded') return false;
+    if(q && !tagNames(f).some(function(t){ return t.indexOf(q)>-1; })) return false;
+    return true;
+  });
+}
+function setPrivate(f,on){
+  var c=G.cur(); if(!c||!f.filename) return Promise.resolve();
+  var tags=(f.tags||[]).filter(function(t){ return String(typeof t==='string'?t:(t&&t.name)||'').toLowerCase()!=='private'; });
+  if(on) tags.push(PRIVATE_TAG);
+  f.tags=tags;
+  return G.jsend('PUT','/api/companions/'+encodeURIComponent(c.name)+'/gallery/'+encodeURIComponent(f.filename)+'/meta',{tags:tags});
+}
+G.setPrivate=setPrivate;
+
+function galPanelHTML(){
+  return ''+
+  '<div class="gal-top">'+
+    '<span class="gal-count" data-gal="count">— <span>images</span></span>'+
+    '<div class="seg" role="group" data-gal="seg"><button data-src="all" aria-pressed="true">All</button><button data-src="selfies" aria-pressed="false">Selfies</button><button data-src="uploaded" aria-pressed="false">Uploaded</button></div>'+
+    '<input class="inp sm" data-gal="tag" placeholder="Filter by tag…" style="min-width:160px">'+
+    '<button class="chip" data-gal="private" aria-pressed="false" title="The private shelf — hidden from the normal view">Private</button>'+
+    '<button class="chip" data-gal="select" aria-pressed="false">Select</button>'+
+  '</div>'+
+  '<div class="gal-bulk" data-gal="bulk" hidden>'+
+    '<span class="lbl" data-gal="selcount">0 selected</span>'+
+    '<button class="btn ghost tiny" data-gal="mkpriv">Mark private</button>'+
+    '<button class="btn ghost tiny" data-gal="unpriv">Unmark private</button>'+
+    '<button class="btn danger tiny" data-gal="del">Delete selected</button>'+
+  '</div>'+
+  '<div class="gal-scene"><div class="lf">'+
+    '<div class="lf-head"><label>Scene</label><span class="where">image prompt</span></div>'+
+    '<p class="hint">Describe what you want to see. Left empty, they pick something themselves.</p>'+
+    '<div class="lf-box"><textarea data-gal="scene" placeholder="Leave empty to let them choose"></textarea></div>'+
+  '</div></div>'+
+  '<div class="gal-actions">'+
+    '<button class="chip" data-gal="me" aria-pressed="false">Include me · couple photo</button>'+
+    '<span class="lbl" data-gal="status" style="margin-left:var(--s3)"></span>'+
+    '<span style="flex:1"></span>'+
+    '<button class="btn ghost" data-gal="upload">Upload</button>'+
+    '<button class="btn primary" data-gal="selfie">Generate selfie</button>'+
+    '<button class="btn ghost" data-gal="video">Generate video</button>'+
+  '</div>'+
+  '<div data-gal="grid"></div>';
+}
+
+function galDraw(host){
+  var q=function(k){ return host.querySelector('[data-gal="'+k+'"]'); };
+  var list=galFiltered();
+  q('count').innerHTML=list.length+' <span>'+(GAL.showPrivate?'private':'images')+'</span>';
+  $$('button[data-src]',q('seg')).forEach(function(b){ b.setAttribute('aria-pressed',String(b.dataset.src===GAL.source)); });
+  q('private').setAttribute('aria-pressed',String(GAL.showPrivate));
+  q('select').setAttribute('aria-pressed',String(GAL.select));
+  q('bulk').hidden=!GAL.select;
+  q('selcount').textContent=Object.keys(GAL.sel).length+' selected';
+  var grid=q('grid');
+  renderGallery(grid, list, {headClass:host.dataset.galHead||'gal-month', onChange:galRefreshAll});
+  if(!list.length && GAL.files.length) grid.innerHTML='<p class="emptyish">'+(GAL.showPrivate?'Nothing on the private shelf.':'Nothing matches that filter.')+'</p>';
+}
+function galRefreshAll(){
+  return galFetch().then(function(){ GAL_HOSTS.forEach(function(h){ if(document.body.contains(h)) galDraw(h); }); });
+}
+G.galRefreshAll=galRefreshAll;
+
+function galMount(host, headClass){
+  if(!host) return Promise.resolve();
+  if(host.dataset.galMounted) return galRefreshAll();   /* already built — just refetch */
+  host.dataset.galMounted='1'; host.dataset.galHead=headClass||'gal-month';
+  host.innerHTML=galPanelHTML();
+  GAL_HOSTS.push(host);
+  var q=function(k){ return host.querySelector('[data-gal="'+k+'"]'); };
+  var fileIn=document.createElement('input'); fileIn.type='file'; fileIn.accept='image/*,video/*'; fileIn.multiple=true; fileIn.hidden=true; host.appendChild(fileIn);
+  function status(t,bad,keep){
+    var el=q('status'); el.textContent=t||''; el.style.color=bad?'var(--danger)':'';
+    if(t&&!keep) setTimeout(function(){ if(el.textContent===t) el.textContent=''; },2500);
+  }
+  function scene(){ return q('scene').value.trim(); }
+  function pressed(k){ return q(k).getAttribute('aria-pressed')==='true'; }
+  function selectedFiles(){ return GAL.files.filter(function(f){ return GAL.sel[f.filename]; }); }
+
+  q('seg').addEventListener('click',function(e){ var b=e.target.closest('button[data-src]'); if(!b) return; GAL.source=b.dataset.src; galDraw(host); });
+  q('tag').addEventListener('input',function(){ GAL.tag=this.value.trim(); galDraw(host); });
+  q('private').addEventListener('click',function(){ GAL.showPrivate=!GAL.showPrivate; GAL.sel={}; galDraw(host); });
+  q('select').addEventListener('click',function(){ GAL.select=!GAL.select; GAL.sel={}; galDraw(host); });
+  q('me').addEventListener('click',function(){ this.setAttribute('aria-pressed',String(!pressed('me'))); });
+
+  /* select mode: tapping a thumbnail ticks it instead of opening the lightbox */
+  q('grid').addEventListener('click',function(e){
+    if(!GAL.select) return;
+    var cell=e.target.closest('.gal-cell'); if(!cell||!cell.dataset.fn) return;
+    e.stopPropagation(); e.preventDefault();
+    if(GAL.sel[cell.dataset.fn]) delete GAL.sel[cell.dataset.fn]; else GAL.sel[cell.dataset.fn]=true;
+    cell.classList.toggle('on', !!GAL.sel[cell.dataset.fn]);
+    q('selcount').textContent=Object.keys(GAL.sel).length+' selected';
+  }, true);
+
+  function bulkPrivate(on){
+    var fs=selectedFiles(); if(!fs.length) return;
+    status((on?'Hiding ':'Unhiding ')+fs.length+'…',false,true);
+    fs.reduce(function(p,f){ return p.then(function(){ return setPrivate(f,on); }); },Promise.resolve())
+      .then(function(){ GAL.sel={}; status(on?'Moved to the private shelf':'Back in the open'); galRefreshAll(); })
+      .catch(function(e){ status('❌ '+G.errMsg(e),true); });
+  }
+  q('mkpriv').addEventListener('click',function(){ bulkPrivate(true); });
+  q('unpriv').addEventListener('click',function(){ bulkPrivate(false); });
+  q('del').addEventListener('click',function(){
+    var fs=selectedFiles(), c=G.cur(); if(!fs.length||!c) return;
+    if(!confirm('Delete '+fs.length+' from the gallery? There\'s no undo.')) return;
+    fs.reduce(function(p,f){ return p.then(function(){ return G.jsend('DELETE','/api/companions/'+encodeURIComponent(c.name)+'/gallery/'+encodeURIComponent(f.filename)); }); },Promise.resolve())
+      .then(function(){ GAL.sel={}; status('Deleted'); galRefreshAll(); })
+      .catch(function(e){ status('❌ '+G.errMsg(e),true); });
+  });
+
+  q('upload').addEventListener('click',function(){ fileIn.click(); });
+  fileIn.addEventListener('change',function(){
+    var c=G.cur(); if(!c) return;
+    var files=Array.prototype.slice.call(this.files); this.value='';
+    var done=0; status('Uploading '+files.length+'…',false,true);
+    files.reduce(function(p,f){
+      return p.then(function(){
+        var fd=new FormData(); fd.append('photo',f,f.name);
+        return fetch('/api/companions/'+encodeURIComponent(c.name)+'/gallery',{method:'POST',credentials:'same-origin',body:fd})
+          .then(function(r){ return r.json(); }).then(function(){ done++; status('Uploaded '+done+' of '+files.length,false,true); });
+      });
+    },Promise.resolve()).then(function(){ status('Uploaded'); galRefreshAll(); })
+      .catch(function(e){ status('❌ Upload failed',true); G.fail('Failed to upload',e); });
+  });
+
+  q('selfie').addEventListener('click',function(){
+    var c=G.cur(); if(!c) return;
+    var includeUser=pressed('me'), b=this;
+    var body={companion:c.name, sceneHint:scene()};
+    if(includeUser){ body.companions=[c.name]; body.includeUser=true; body.mode='multi'; }  /* server only pulls your face in multi mode */
+    b.disabled=true; status(c.name+' is taking a '+(includeUser?'photo of you both':'selfie')+'…',false,true);
+    G.jsend('POST','/api/generate-image',body).then(function(r){
+      b.disabled=false;
+      if(!r||!r.imageUrl){ status('❌ Generation failed',true); G.toast((r&&r.error)||'Generation failed: no image URL returned'); return; }
+      status('Done'); q('scene').value='';
+      galRefreshAll().then(function(){
+        var hit=GAL.files.filter(function(f){ return f.url===r.imageUrl || r.imageUrl.indexOf(encodeURIComponent(f.filename))>-1 || r.imageUrl.indexOf(f.filename)>-1; })[0];
+        var flat=[]; galleryGroups(galFiltered()).forEach(function(g){ flat=flat.concat(g.files); });
+        if(hit && flat.indexOf(hit)>-1) openLightbox(flat, flat.indexOf(hit), galRefreshAll);
+        else openLightbox([hit||{filename:'',url:r.imageUrl,tags:[],createdAt:new Date().toISOString(),source:'selfie'}],0,galRefreshAll);
+      });
+    }).catch(function(e){ b.disabled=false; status('❌ '+G.errMsg(e),true); if(!e.net) G.toast(/paused/i.test(e.message||'')?e.message:'Generation failed: '+G.errMsg(e),{kind:/paused/i.test(e.message||'')?'warn':'error'}); });
+  });
+
+  q('video').addEventListener('click',function(){
+    var c=G.cur(); if(!c) return; var b=this;
+    b.disabled=true; status('Generating video — this takes a while…',false,true);
+    G.jsend('POST','/api/generate-video',{companion:c.name,mode:'text-to-video',prompt:scene()}).then(function(r){
+      b.disabled=false;
+      if(!r||!r.videoUrl){ status('❌ Video generation failed',true); G.toast((r&&r.error)||'Video generation failed: no URL returned'); return; }
+      status('Video ready'); galRefreshAll();
+      openLightbox([{filename:(r.videoUrl||'').split('/').pop(),url:r.videoUrl,tags:[],createdAt:new Date().toISOString(),source:'video'}],0,galRefreshAll);
+    }).catch(function(e){ b.disabled=false; status('❌ '+G.errMsg(e),true); if(!e.net) G.toast('Video generation failed: '+G.errMsg(e)); });
+  });
+  return galRefreshAll();
+}
+
+/* top-bar gallery view — refetched every time it opens */
+function drawGallery(){
+  var host=$('#galpanel'); if(!host) return;
+  if(!G.cur()){ host.innerHTML='<p class="emptyish">No companions yet.</p>'; delete host.dataset.galMounted; return; }
+  galMount(host,'gal-month').then(function(){ var t=$('#topsub'); if(t) t.textContent=GAL.files.length+' image'+(GAL.files.length===1?'':'s'); });
+}
 G.drawGallery=drawGallery;
+/* character-card gallery — same panel, refetched every time the card or its Gallery section opens */
+G.galRender=function(){ var host=$('#cardgal-panel'); if(!host||!G.cur()) return; galMount(host,'gal-month-h'); };
 
 /* ══════════════ THE WALL ══════════════
    The Wall is its own finished surface — embed the real one. */
@@ -7366,6 +7543,7 @@ $$('.cfg-nav').forEach(function(nav){
     $$('.cfg-sec',body).forEach(function(s){s.classList.toggle('on', s.id==='sec-'+b.dataset.sec);});
     body.scrollTop=0;
     try{ b.scrollIntoView({block:'nearest',inline:'center'}); }catch(e){}
+    if(b.dataset.sec==='cgallery' && G.galRender) G.galRender();
     if(G.resyncFields) requestAnimationFrame(G.resyncFields);
   });
 });
@@ -8092,73 +8270,7 @@ function injRender(card){
   });
 })();
 
-/* ═══════════ CARD GALLERY (live, shared renderer) ═══════════ */
-function galRender(c){
-  var box=$('#cardgal-wrap'); if(!box) return;
-  box.innerHTML='';
-  if(!c) return;
-  G.quiet(G.jget('/api/companions/'+encodeURIComponent(c.name)+'/gallery'), []).then(function(files){
-    if(!G.cur()||G.cur().name!==c.name) return;
-    if(!Array.isArray(files)) files=[];
-    var cnt=$('.gal-count');
-    if(cnt) cnt.innerHTML=files.length+' <span>images</span>';
-    G.renderGallery(box, files, {headClass:'gal-month-h', onChange:function(){ galRender(G.cur()); }});
-  });
-}
-/* generation controls — Scene feeds every one of them */
-function galStatus(t,bad){ var el=$('#gal-status'); if(el){ el.textContent=t||''; el.style.color=bad?'var(--danger)':''; } }
-function sceneText(){ var ta=$('#fields-scene textarea'); return ta?ta.value.trim():''; }
-(function wireGalActions(){
-  var me=$('#gal-me'), up=$('#gal-upload'), selfie=$('#gal-selfie'), vid=$('#gal-video');
-  if(!selfie) return;
-  var fileIn=document.createElement('input'); fileIn.type='file'; fileIn.accept='image/*,video/*'; fileIn.multiple=true; fileIn.hidden=true;
-  document.body.appendChild(fileIn);
-  if(up) up.addEventListener('click',function(){ fileIn.click(); });
-  fileIn.addEventListener('change',function(){
-    var c=G.cur(); if(!c) return;
-    var files=Array.prototype.slice.call(this.files); this.value='';
-    var done=0;
-    galStatus('Uploading '+files.length+'…');
-    files.reduce(function(p,f){
-      return p.then(function(){
-        var fd=new FormData(); fd.append('photo',f,f.name);
-        return fetch('/api/companions/'+encodeURIComponent(c.name)+'/gallery',{method:'POST',credentials:'same-origin',body:fd})
-          .then(function(r){ return r.json(); }).then(function(){ done++; galStatus('Uploaded '+done+' of '+files.length); });
-      });
-    }, Promise.resolve()).then(function(){ galStatus('Uploaded'); galRender(c); setTimeout(function(){ galStatus(''); },2500); })
-      .catch(function(e){ galStatus('❌ Upload failed',true); G.fail('Failed to upload',e); });
-  });
-  selfie.addEventListener('click',function(){
-    var c=G.cur(); if(!c) return;
-    var includeUser=me&&me.getAttribute('aria-pressed')==='true';
-    selfie.disabled=true; galStatus(c.name+' is taking a '+(includeUser?'photo of you both':'selfie')+'…');
-    G.jsend('POST','/api/generate-image',{companion:c.name,sceneHint:sceneText(),includeUser:includeUser}).then(function(r){
-      selfie.disabled=false;
-      if(!r||!r.imageUrl){ galStatus('❌ Generation failed',true); G.toast((r&&r.error)||'Generation failed: no image URL returned'); return; }
-      galStatus('Done');
-      G.quiet(G.jget('/api/companions/'+encodeURIComponent(c.name)+'/gallery'),[]).then(function(files){
-        if(!Array.isArray(files)) files=[];
-        G.renderGallery($('#cardgal-wrap'), files, {headClass:'gal-month-h', onChange:function(){ galRender(G.cur()); }});
-        var hit=files.filter(function(f){ return f.url===r.imageUrl || (r.imageUrl||'').indexOf(encodeURIComponent(f.filename))>-1 || (r.imageUrl||'').indexOf(f.filename)>-1; })[0];
-        var groups=G.galleryGroups(files); var flat=[]; groups.forEach(function(g){ flat=flat.concat(g.files); });
-        if(hit) G.openLightbox(flat, flat.indexOf(hit), function(){ galRender(G.cur()); });
-        else G.openLightbox([{filename:'',url:r.imageUrl,tags:[],createdAt:new Date().toISOString(),source:'selfie'}],0);
-        setTimeout(function(){ galStatus(''); },2500);
-      });
-    }).catch(function(e){ selfie.disabled=false; galStatus('❌ '+G.errMsg(e),true); if(!e.net) G.toast(/paused/i.test(e.message||'')?e.message:'Generation failed: '+G.errMsg(e),{kind:/paused/i.test(e.message||'')?'warn':'error'}); });
-  });
-  if(vid) vid.addEventListener('click',function(){
-    var c=G.cur(); if(!c) return;
-    vid.disabled=true; galStatus('Generating video — this takes a while…');
-    G.jsend('POST','/api/generate-video',{companion:c.name,mode:'text-to-video',prompt:sceneText()}).then(function(r){
-      vid.disabled=false;
-      if(!r||!r.videoUrl){ galStatus('❌ Video generation failed',true); G.toast((r&&r.error)||'Video generation failed: no URL returned'); return; }
-      galStatus('Video ready'); galRender(c);
-      G.openLightbox([{filename:(r.videoUrl||'').split('/').pop(),url:r.videoUrl,tags:[],createdAt:new Date().toISOString(),source:'video'}],0);
-      setTimeout(function(){ galStatus(''); },2500);
-    }).catch(function(e){ vid.disabled=false; galStatus('❌ '+G.errMsg(e),true); if(!e.net) G.toast('Video generation failed: '+G.errMsg(e)); });
-  });
-})();
+function galRender(c){ if(G.galRender) G.galRender(c); }
 
 /* ═══════════ BOOT ═══════════ */
 Object.keys(F).forEach(function(k){ renderFields('#fields-'+k, F[k]); });
@@ -9550,7 +9662,7 @@ function groupPhoto(){
   var canMe=G.refList(persona).length>0;
   var chosen=members.filter(function(c){ return !(c.card&&c.card.photoEnabled===false); }).map(function(c){ return c.name; });
   var remembered=null; try{ remembered=localStorage.getItem('lr.gp.me'); }catch(e){}
-  var me=canMe && remembered!=='0';
+  var me=canMe && remembered==='1';   /* off unless you turned it on last time */
   var box=$('#dlgbox'); box.className='dlg form';
   function chips(){
     return members.map(function(c){
@@ -9572,11 +9684,13 @@ function groupPhoto(){
   box.onclick=function(e){
     var chip=e.target.closest('#gp-pick button');
     if(chip){ if(chip.classList.contains('off')){ G.toast(chip.dataset.name+' doesn\'t take photos — turn it on under Presence.',{kind:'warn'}); return; } var n=chip.dataset.name, i=chosen.indexOf(n); if(i>-1) chosen.splice(i,1); else chosen.push(n); chip.setAttribute('aria-pressed',String(i<0)); return; }
-    if(e.target.closest('#gp-me')&&canMe){ me=!me; $('#gp-me').setAttribute('aria-pressed',String(me)); try{ localStorage.setItem('lr.gp.me',me?'1':'0'); }catch(x){} return; }
+    if(e.target.closest('#gp-me')){ return; }   /* the global .toggle handler flips the switch; we read it on Take it */
     if(e.target.closest('[data-close]')){ done(); return; }
     if(e.target.closest('#gp-go')){
       if(!chosen.length){ G.warn('Pick at least one of them.'); return; }
       var scene=(($('#gp-scene')||{}).value||'').trim();
+      me=canMe && $('#gp-me').getAttribute('aria-pressed')==='true';
+      try{ localStorage.setItem('lr.gp.me',me?'1':'0'); }catch(x){}
       done(); shoot(g, chosen, me, scene);
     }
   };
@@ -12887,9 +13001,10 @@ function editPeople(){
   box.onclick=function(e){
     var chip=e.target.closest('#cs-pick button');
     if(chip){ var n=chip.dataset.name, i=chosen.indexOf(n); if(i>-1) chosen.splice(i,1); else chosen.push(n); chip.setAttribute('aria-pressed',String(i<0)); return; }
-    if(e.target.closest('#cs-me')){ me=!me; $('#cs-me').setAttribute('aria-pressed',String(me)); return; }
+    if(e.target.closest('#cs-me')){ return; }   /* global .toggle handler owns the switch */
     if(e.target.closest('#cs-people-save')){
       if(!chosen.length){ G.warn('A project needs at least one companion.'); return; }
+      me=$('#cs-me').getAttribute('aria-pressed')==='true';
       /* keep the household's order, not click order */
       var ordered=(G.HOUSE||[]).map(function(c){ return c.name; }).filter(function(n){ return chosen.indexOf(n)>-1; });
       G.jsend('PUT',API+'/'+enc(PROJ.id),{companions:ordered,includeUser:me}).then(function(p){
