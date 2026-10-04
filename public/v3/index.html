@@ -1839,10 +1839,16 @@ html.who-noimg #compose button[title="Ask for a selfie"],html.who-noimg [data-ga
 #m-tabbar button svg{width:20px;height:20px}
 #m-tabbar button[aria-current="true"]{color:var(--who)}
 #m-scrim{display:none;position:fixed;inset:0;z-index:75;background:rgba(6,4,12,.6)}
+.ctools .m-more{display:none}
 @media (max-width:900px){
   /* 16px inputs so iOS never zooms the layout on focus */
   .inp,select,textarea,.grow{font-size:16px}
   #m-tabbar{display:flex}
+  /* compose tools fold behind a + so the textbox gets the width */
+  .cbox .ctools .m-more{display:grid}
+  .cbox .ctools .m-more svg{transition:transform .16s}
+  .cbox.tools-open .ctools .m-more svg{transform:rotate(45deg)}
+  .cbox:not(.tools-open) .ctools:first-child button:not(.m-more){display:none}
   body.m-nav #m-scrim{display:block}
   /* everything scrollable clears the tab bar */
   #main{padding-bottom:calc(56px + env(safe-area-inset-bottom))}
@@ -1933,7 +1939,7 @@ html.who-noimg #compose button[title="Ask for a selfie"],html.who-noimg [data-ga
 /* anything with the hidden attribute is hidden, whatever its display rule says */
 [hidden]{display:none!important}
 /* rail sections fold */
-.sec[data-fold]{cursor:pointer;display:flex;align-items:center;user-select:none}
+.sec[data-fold]{cursor:pointer;display:flex;align-items:center;user-select:none;width:100%;font:inherit;-webkit-tap-highlight-color:transparent}
 .sec[data-fold] .lbl{flex:1}
 .sec[data-fold] .tw{font-size:11px;color:var(--ink-3);transition:transform .16s;margin-right:2px}
 .sec[data-fold].shut .tw{transform:rotate(-90deg)}
@@ -1990,8 +1996,8 @@ html.ui-roomy .place,html.ui-roomy .addbtn{padding:10px var(--s3) 10px 18px}
 .favchips button{font:inherit;font-size:12px;color:var(--ink-2);background:var(--lamp);border:1px solid var(--line);border-radius:999px;padding:3px 10px;cursor:pointer}
 .favchips button:hover{color:var(--ink);border-color:var(--who)}
 .favchips button i{font-style:normal;opacity:.55;margin-left:6px}
-html.ui-noselfies .msg.them .att img,html.ui-noselfies .msg.them .att video{display:none}
-html.ui-noselfies .msg.them .att::after{content:'photo saved to their gallery';font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+html.ui-noselfies .msg:not(.me) .att .ph,html.ui-noselfies .msg:not(.me) .att video{display:none !important}
+html.ui-noselfies .msg:not(.me) .att::after{content:'photo saved to their gallery';display:block;padding:8px 10px;font-family:var(--mono);font-size:11px;color:var(--ink-3)}
 #callbox{display:none}#callbox:not([hidden]){position:fixed;inset:0;z-index:120;background:rgba(6,4,14,.82);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;padding:var(--s5)}
 .call-card{display:flex;flex-direction:column;align-items:center;gap:var(--s3);width:min(460px,100%);text-align:center}
 .call-card b{font-size:22px;color:var(--ink)}
@@ -10949,6 +10955,24 @@ if(rail) rail.addEventListener('click',function(e){
     closeNav(); setTab('chat');
   }
 });
+/* compose tools fold behind a + on the phone: attach / selfie / voice (and the
+   group bar's attach / photo) sit one tap away, the textbox gets the width.
+   Tapping a tool folds them again, except the voice memo, which stops on its own button. */
+Array.prototype.forEach.call(document.querySelectorAll('#v-chat #compose .cbox, #v-group .compose .cbox'),function(cb){
+  var tools=cb.querySelector('.ctools'); if(!tools||tools.querySelector('.m-more')) return;
+  var more=document.createElement('button');
+  more.type='button'; more.className='m-more'; more.title='Tools'; more.setAttribute('aria-label','More tools'); more.setAttribute('aria-expanded','false');
+  more.innerHTML='<svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 3.5v11M3.5 9h11"/></svg>';
+  tools.insertBefore(more, tools.firstChild);
+  function fold(on){ cb.classList.toggle('tools-open',on); more.setAttribute('aria-expanded',String(on)); }
+  more.addEventListener('click',function(e){ e.stopPropagation(); fold(!cb.classList.contains('tools-open')); });
+  tools.addEventListener('click',function(e){
+    var b=e.target.closest('button'); if(!b||b===more) return;
+    if(/voice memo/i.test(b.title||'')||tools.querySelector('.rec')) return;
+    fold(false);
+  });
+  var grow=cb.querySelector('.grow'); if(grow) grow.addEventListener('focus',function(){ fold(false); });
+});
 /* closing the sheet from its own X resets the tab */
 var shx=$('#sheetclose');
 if(shx) shx.addEventListener('click',function(){ setTab('chat'); });
@@ -13001,20 +13025,22 @@ function foldRail(){
     var lbl=sec.querySelector('.lbl'); if(!lbl) return;
     var name=(lbl.childNodes[0]&&lbl.childNodes[0].textContent||lbl.textContent).trim().toLowerCase();
     if(name==='household') return;
+    /* a real <button>: iPhones don't reliably turn a tap on a plain div into a click, so the header becomes one */
+    var btn=document.createElement('button'); btn.type='button'; btn.className=sec.className;
+    while(sec.firstChild) btn.appendChild(sec.firstChild);
+    sec.parentNode.replaceChild(btn, sec); sec=btn;
     sec.dataset.fold=name;
     var body=document.createElement('div'); body.className='secbody';
     var n=sec.nextElementSibling;
     while(n && !n.classList.contains('sec') && !n.classList.contains('persona')){ var nx=n.nextElementSibling; body.appendChild(n); n=nx; }
     sec.parentNode.insertBefore(body, sec.nextSibling);
     sec.insertAdjacentHTML('beforeend','<span class="tw" aria-hidden="true">▾</span>');
-    sec.setAttribute('role','button'); sec.tabIndex=0;
     /* collapsed until you open it — pinned companions are the only thing on screen at load */
     var saved=store('lr.rail.'+name); var shut=saved==null?true:saved==='1';
     function paint(){ sec.classList.toggle('shut',shut); body.hidden=shut; sec.setAttribute('aria-expanded',String(!shut)); }
     paint();
     function flip(){ shut=!shut; store('lr.rail.'+name, shut?'1':'0'); paint(); }
     sec.addEventListener('click',flip);
-    sec.addEventListener('keydown',function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); flip(); } });
   });
 }
 foldRail();
