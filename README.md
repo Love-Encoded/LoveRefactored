@@ -697,7 +697,40 @@ Password min 12 characters. Restart after creating `auth.js`.
 
 Opens **http://localhost:3000**, starts Whisper (`:5555`), the UI server (**nodemon** locally; plain **node** when **`LR_PROFILE=vps`**), then Tanevan (`:5001`) when at least one companion exists (or **`TANEVAN_COMPANION_NAME`** is set). On a fresh install with no companions, create one and re-run **`./start.sh`** to bring memory online.
 
-Production: **`npm install --omit=dev`**. On a VPS that already runs under PM2, **`ecosystem.config.cjs`** is a path-only config for `/opt/love-refactored` (`lr-server`, optional Pipecat / Fish). Keys belong in that host’s `.env`, not in the PM2 file. It does **not** start Whisper or Tanevan — those still come from **`./start.sh`** or your own process manager.
+`./start.sh` is for your own computer. On a VPS, use PM2 instead — see the next section.
+
+### 10. Running on a VPS
+
+> **Do not run `start.sh` under PM2.** `start.sh` is a one-shot launcher: it starts the services and exits. PM2 will treat that exit as a crash and run it again every few seconds, and each run kills the services the previous run started. The symptom is a login page that works once and then `ERR_CONNECTION_REFUSED`.
+
+**`ecosystem.config.cjs`** in the repo root defines every service (`lr-server`, `lr-tanevan`, `lr-whisper`, `lr-telegram`) with the VPS settings already applied (`LR_PROFILE=vps`, `AUTH_TRUST_PROXY=1`, `TANEVAN_DATA_DIR=<repo>/tanevan-data`). Keys and settings belong in `.env`, not in the PM2 file.
+
+```bash
+cd /opt/love-refactored
+npm install --omit=dev
+cp auth.example.js auth.js && node scripts/auth-users.js add yourname --role admin   # see step 8
+
+# 4 GB swap — Whisper loads a large model and a VPS without swap will get the app OOM-killed
+sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+npm install -g pm2
+pm2 start ecosystem.config.cjs
+pm2 save
+pm2 startup        # prints one command — copy and run it so PM2 comes back after a reboot
+```
+
+Check it: `curl -I http://127.0.0.1:3000` should return **`401 Unauthorized`** — that is the login wall working, not an error. Put a reverse proxy in front for HTTPS; a Caddyfile is two lines (no `http://` prefix, or Caddy will not fetch a certificate):
+
+```
+yourdomain.com {
+    reverse_proxy localhost:3000
+}
+```
+
+Day-to-day: `pm2 status`, `pm2 logs lr-server`, `pm2 restart all` after editing `.env`, `pm2 restart lr-tanevan` after a `git pull` that touched `tanevan/`. Only port **3000** should be reachable from the internet (through the proxy); Tanevan and Whisper bind to `127.0.0.1`.
+
+Memory: 8 GB is comfortable. On 4 GB, add `WHISPER_MODEL=base` to `.env`.
 
 | Variable | Default | Role |
 |----------|---------|------|
@@ -748,7 +781,7 @@ LoveRefactored/
 │   ├── backups/           # love-*.db snapshots
 │   └── …                  # chat_logs/, journals/, groups/, parlors/, debug-log/, auth/, …
 ├── start.sh / stop.sh
-├── ecosystem.config.cjs   # Optional PM2 shape for /opt/love-refactored (does not start Whisper/Tanevan)
+├── ecosystem.config.cjs   # PM2 config for a VPS — all services (see Setup → 10)
 ├── LICENSE.md
 ├── CLA.md
 ├── BETA_AGREEMENT.md

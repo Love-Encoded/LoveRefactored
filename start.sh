@@ -1,5 +1,14 @@
 #!/bin/bash
 
+# Refuse to run under PM2. This script starts the services and exits; PM2 would
+# restart it in a loop, and each loop kills what the previous one started.
+if [ -n "${pm_id:-}" ] || [ -n "${PM2_HOME:-}" ]; then
+  echo "start.sh must not run under PM2. On a VPS use:  pm2 start ecosystem.config.cjs" >&2
+  echo "See README → Setup → 10. Running on a VPS." >&2
+  sleep 30   # keep PM2 from hammering restarts while the user reads this
+  exit 1
+fi
+
 # Get the directory where this script lives (works no matter where you run it from)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LR_PROFILE="${LR_PROFILE:-local}"
