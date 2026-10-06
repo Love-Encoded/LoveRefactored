@@ -8186,7 +8186,7 @@ function openFocus(lf,src){
   ta.focus();
   $('#focus-done').onclick=function(){
     src.value=ta.value;
-    src.dispatchEvent(new Event('input'));
+    src.dispatchEvent(new Event('input',{bubbles:true}));
     f.classList.remove('on');
   };
   $('#focus-cancel').onclick=function(){ f.classList.remove('on'); };
@@ -9349,7 +9349,7 @@ function egs(){
   box.addEventListener('click',function(ev){
     var b=ev.target.closest('button'); if(!b) return;
     var ta=$('#fields-outreach textarea');
-    if(ta){ ta.value=b.textContent; ta.dispatchEvent(new Event('input')); ta.focus(); }
+    if(ta){ ta.value=b.textContent; ta.dispatchEvent(new Event('input',{bubbles:true})); ta.focus(); }
   });
 }
 
