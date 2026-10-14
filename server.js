@@ -9759,7 +9759,21 @@ app.post('/api/generate-image', async (req, res) => {
     // === COMFYUI GENERATION (existing code) ===
     let workflow;
     const comfyWriterPrompt = imagePrompt;
-    if (useLoRA) {
+    const customWorkflowPath = path.join(__dirname, settings.comfyui?.workflowFile || 'data/comfy-workflow.json');
+    if (fs.existsSync(customWorkflowPath)) {
+      // Bring-your-own ComfyUI workflow (any model family). Export from ComfyUI in API format
+      // and put PROMPT_PLACEHOLDER / LORA_PLACEHOLDER / "SEED_PLACEHOLDER" / PREFIX_PLACEHOLDER /
+      // REFERENCE_PLACEHOLDER where LR should fill things in.
+      imagePrompt = (card.loraTrigger ? card.loraTrigger + ', ' : '') + imagePrompt;
+      const raw = fs.readFileSync(customWorkflowPath, 'utf8')
+        .replace(/PROMPT_PLACEHOLDER/g, JSON.stringify(imagePrompt).slice(1, -1))
+        .replace(/LORA_PLACEHOLDER/g, card.loraPath || '')
+        .replace(/"SEED_PLACEHOLDER"/g, String(Math.floor(Math.random() * 2147483647)))
+        .replace(/PREFIX_PLACEHOLDER/g, `${safeName}_selfie`)
+        .replace(/REFERENCE_PLACEHOLDER/g, card.referenceImage || '');
+      workflow = JSON.parse(raw);
+      console.log(`🖼️ Using custom ComfyUI workflow: ${customWorkflowPath}`);
+    } else if (useLoRA) {
       imagePrompt = (card.loraTrigger ? card.loraTrigger + ', ' : '') + imagePrompt;
       workflow = JSON.parse(JSON.stringify(COMFYUI_FLUX_WORKFLOW));
       workflow['5'].inputs.text = imagePrompt;
