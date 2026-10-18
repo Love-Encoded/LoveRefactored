@@ -44,7 +44,7 @@ Each pipeline pass is prefixed with **Memory Lens** (per-companion relational co
 
 ## How It Works
 
-1. **Love Refactored sends messages** to the proxy's `/buffer` endpoint as conversations happen (including voice-call transcripts and video-attachment summaries). The app also sends **`user_name`** (persona display name) on `/buffer`, `/flush`, and `/import`.
+1. **Love Refactored sends messages** to the proxy's `/buffer` endpoint as conversations happen (including voice-call transcripts and video-attachment summaries). The app also sends **`user_name`** (persona display name) on `/buffer`, `/flush`, and `/import`. A reroll does not append another assistant line: **`POST /buffer/replace-last`** overwrites the newest buffered message of that role with the version that is showing. If the buffer just flushed, that line is appended instead. The call never starts a pipeline run.
 2. **Messages accumulate** in a per-companion SQLite buffer.
 3. **When the buffer hits the threshold** (default 100 messages), or you manually flush, or the server shuts down — the pipeline fires. Auto-flush and shutdown need **≥4** messages; a manual flush from the app can run on **1**. Long buffers are split by idle gap (default **2 hours**, `TANEVAN_SESSION_GAP_SECONDS`) and a token cap (default **12k**, `TANEVAN_SESSION_TOKEN_CAP`).
 4. **Pass 1 (Summarizer):** Reads the raw conversation and produces a structured summary from the companion's perspective — emotional arc, narrative, topics, key moments. `event_date` on later memories is stamped here from conversation timestamps.
@@ -61,6 +61,8 @@ Summarizer, extractor, updater, **reflection**, and **brief** route through **`p
 - Fall back to **`ANTHROPIC_API_KEY`** (exported by **`./start.sh`** from **`data/settings.json`**) or Love Refactored settings when keys are not stored in pipeline config. Brief can fall back to the summarizer model when `brief_model` is blank.
 
 Environment variables **`TANEVAN_*_MODEL`** / **`BRIEF_MODEL_NAME`** apply only when explicitly set — pipeline steps have no hardcoded model IDs. Models must be configured in the UI or env before pipeline runs succeed. Exception: if **`BRIEF_MODEL_KEY`** is set (legacy OpenAI-compatible sidecar path), `BRIEF_MODEL_BASE` defaults to `https://openrouter.ai/api/v1` and `BRIEF_MODEL_NAME` to `deepseek/deepseek-chat`.
+
+Direct Anthropic pipeline calls use the same Claude 5 thinking pin as chat. Sonnet 5, Opus 5, and Haiku 5 are sent `thinking: { type: "disabled" }`. Opus 5.5, Fable, and Mythos are sent adaptive thinking at effort **low**. Thinking blocks are dropped before the text is used.
 
 **`LR_HOME`** (repo root by default) is used to locate **`data/settings.json`** for API key fallbacks and default provider hints.
 
@@ -285,8 +287,9 @@ All endpoints accept `?companion=name` (GET) or `"companion"` in the request bod
 
 | Method | Path | What It Does |
 |--------|------|-------------|
-| `POST` | `/buffer` | Buffer a message (`{role, content, companion}`). May report `pipeline_trigger_skipped` if a job is already running |
-| `POST` | `/flush` | Trigger the pipeline on the current buffer (`{companion}`; app sends `manual: true` so min_messages=1) |
+| `POST` | `/buffer` | Buffer a message (`{role, content, companion}`). May report `pipeline_trigger_skipped` if a job is already running, or `pipeline_paused` after the failure cap |
+| `POST` | `/buffer/replace-last` | Overwrite the newest buffered line with this role (`{role, content, companion}`). Used when a reroll changes the line that is showing. Does not start a run and does not change the count. If that role is not in the buffer, the line is appended |
+| `POST` | `/flush` | Trigger the pipeline on the current buffer (`{companion}`; app sends `manual: true` so min_messages=1). A manual flush re-arms a paused companion |
 
 ### Maintenance
 
@@ -324,7 +327,7 @@ All endpoints accept `?companion=name` (GET) or `"companion"` in the request bod
 
 | Method | Path | What It Does |
 |--------|------|-------------|
-| `POST` | `/import` | Import a chat history file — accepts JSON body or multipart file upload. Normalizes message formats (SillyTavern, generic role/content, etc.), chunks into 100-message batches, processes asynchronously. Returns a `job_id` immediately. Does **not** fire the brief sidecar per chunk. |
+| `POST` | `/import` | Import a chat history file — accepts JSON body or multipart file upload. Normalizes message formats (SillyTavern, generic role/content, etc.), then cuts **sessions the same way a live flush does**: idle gap (`TANEVAN_SESSION_GAP_SECONDS`, default 2h), token cap (`TANEVAN_SESSION_TOKEN_CAP`, default 12k), then a 100-message ceiling so a history with no usable timestamps stays at the old granularity. A trailing piece shorter than 4 messages is merged into the previous one. No message is dropped. Processes asynchronously and returns a `job_id` immediately. Does **not** fire the brief sidecar per session. |
 | `GET` | `/import/status/<job_id>` | Poll import progress (`?since=N` for incremental activity feed). Returns chunks done, memories extracted, session summaries. |
 
 Import accepts various chat export formats — it normalizes `role`/`sender` fields and `content`/`text`/`message` fields automatically.
@@ -338,6 +341,8 @@ The memory pipeline fires on three events:
 3. **Shutdown** — `Ctrl+C` processes companion buffers with ≥4 messages before exit
 
 One pipeline job per companion at a time (in-process lock).
+
+After **3** consecutive failed automatic runs for one companion (`TANEVAN_PIPELINE_MAX_FAILURES`), auto-flush **pauses** for that companion and the buffer is held. `POST /buffer` reports `pipeline_paused`. A manual flush, or restarting Tanevan, re-arms it.
 
 ## Context Injection
 
@@ -381,6 +386,7 @@ The legacy **`POST /v1/chat/completions`** proxy uses the same dossier search pa
 | `TANEVAN_PROXY_HOST` | `127.0.0.1` | Bind address (keep localhost on a VPS) |
 | `TANEVAN_URL` | `http://localhost:5001` | Base URL the brief sidecar uses to call this proxy |
 | `TANEVAN_SUMMARIZE_EVERY` | `100` | Auto-trigger pipeline after this many buffered messages |
+| `TANEVAN_PIPELINE_MAX_FAILURES` | `3` | Consecutive failed auto-runs before that companion’s auto-flush pauses |
 | `TANEVAN_SESSION_GAP_SECONDS` | `7200` | Split buffer into sessions on this idle gap |
 | `TANEVAN_SESSION_TOKEN_CAP` | `12000` | Split oversized sessions at user-turn boundaries |
 | `TANEVAN_SUMMARIZER_MODEL` | *(none — configure in UI)* | Optional env override for Pass 1 |
@@ -448,7 +454,7 @@ python3 prune_chroma_ghosts.py --companion your-companion --yes
 
 ## Scale Reference
 
-Tested at scale with bulk imports of 50,000+ messages. The chunked async import system (`POST /import`) handles large histories by splitting into 100-message batches and processing them sequentially in a background thread, with real-time progress via the activity feed.
+Tested at scale with bulk imports of 50,000+ messages. `POST /import` plans sessions up front (time gap, token cap, 100-message ceiling) and processes them sequentially in a background thread, with real-time progress via the activity feed.
 
 ## License
 

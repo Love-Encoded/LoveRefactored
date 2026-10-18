@@ -22,9 +22,11 @@ The stack is **Node.js + Express** for the app server, **vanilla HTML/CSS/JS** f
 
 ## The v3 UI
 
-v3 is a single-page shell. The **sidebar** (the household), **main column** (chat / journal / gallery), and **stage** (full-screen places: character card, settings, Wall, Vault, lorebooks, calendar, Parlor, Creative Studio, memory galaxy) are the three layers. A **memory sheet** slides in beside chat. On screens under 900px, a bottom bar switches House / Chat / Memory and the sidebar becomes a drawer.
+v3 is a single-page shell. The **sidebar** (the household), **main column** (chat / journal / gallery), and **stage** (full-screen places: character card, settings, Wall, Vault, lorebooks, calendar, Parlor, Creative Studio, memory galaxy) are the three layers. A **memory sheet** slides in beside chat.
 
 Companion colour is first-class: each person has a hue used in the sidebar, message edges, group names, calendar bars, and the galaxy. Yours is set on the persona form.
+
+On screens under 900px, a bottom bar switches House / Chat / Memory and the sidebar becomes a drawer. Composer tools (attach, selfie, voice memo — and in a group, attach and the group photo) fold behind a **+** so the text box keeps the width. Focusing the text box, or tapping a tool other than the voice memo, folds them again. Sidebar section headers other than Household are buttons, so a tap folds the section on a phone.
 
 ### Sidebar
 
@@ -125,7 +127,7 @@ Opened from the header. Left rail, grouped. Every long field shows **where it la
 - **Profile** line, injected as `[PROFILE]`: birthday, zodiac, MBTI, enneagram, archetypes (all optional; placeholders read as examples).
 - **Identity:** backstory, boundaries, personality & voice.
 - **Underneath:** emotional engine, **Values & Morality**, decision making, daily rhythms, tells & tics.
-- **For the image generator:** **Appearance** (the chat model never sees it) and up to **four reference face photos**. The Technical tab points here; it no longer holds the uploader.
+- **For the image generator:** **Appearance** (the chat model never sees it) and up to **four reference face photos**. Replicate and fal send every photo on the live form. A multi-person shot keeps one photo per person first, then extra angles, and stops at **10** images. ComfyUI still uses the single reference image wired into the workflow. The Technical tab points here; it no longer holds the uploader.
 - **Alternate form** — one second body (a shifter, a glamour, another age). It keeps its own appearance, face photos, and avatar. Switching swaps those with the live set; the rest of the card stays. Name both forms. **Tell them which form they're in** (on by default) adds one `[CURRENT FORM]` line to 1:1, group, voice, and Parlor prompts: which body is live, and the name of the other. Off, the pictures still change and the model is not told. Removing the second form keeps the current look and deletes the other form's appearance, photos, and avatar.
 - **Seen & heard:** example messages (`*asterisk*` actions render as narration), camera eye.
 - **You, to them** — per-companion **user persona override** (otherwise the global persona is used).
@@ -264,11 +266,11 @@ Tabbed stage, same left-rail pattern as the card.
 | | **Sampling** | Send-sampling-params toggle; temperature, max tokens, top-p / top-k, min-p, frequency / presence penalties, stop sequences. |
 | Memory | **Server & schedule** | Enable memory, Tanevan URL, health test. Nightly **reflections** time (default 03:00). Run reflections now. |
 | | **Pipeline** | Per-pass provider/model (summarizer, extractor, updater, reflect, **brief**) written to `~/tanevan-data/pipeline_config.json`. The v3 editor is schema-driven from Tanevan’s `/config`. Test LLM pipeline. |
-| Senses | **Images** | Master enable, show selfies in chat, prompt-writer model, renderer (ComfyUI / Replicate / fal.ai / DALL·E stored / custom HTTP). Kling video-with-audio. Shrink attachments; vision fallback provider/model, images per turn, include visible text. |
+| Senses | **Images** | Master enable, show selfies in chat, prompt-writer model, renderer (ComfyUI / Replicate / fal.ai / DALL·E stored / custom HTTP). **Test ComfyUI**. Kling image-to-video, silent unless **Video with audio** is on (the toggle shows when the renderer is fal.ai; Replicate reads the same flag). Shrink attachments; vision fallback provider/model, images per turn, include visible text. |
 | | **Voice & video** | Voice memo provider (`none` / ElevenLabs / Chatterbox / NeuTTS / Fish). Call provider (ElevenLabs Agents / Fish Pipecat), VAD silence, live transcript. ElevenLabs key, Whisper URL + transcribe toggle, Anam key + enable. |
 | The app | **Appearance** | Tint messages with their colour, timestamps, receding action text, reduce motion, density (compact / comfortable / roomy), system colour. |
 | | **Backups** | Scheduled snapshots (interval + retention). **Chat database** (`data/love.db` → `data/backups/`). **Memory databases** (all companion Tanevan DBs → `~/tanevan-data/backups/`). Backup now on either. |
-| | **Integrations** | Mood-eval frequency; Spotify OAuth; Brave Search; **weather awareness** (Open-Meteo, lat/lon, optional location name, no key); **Klipy** GIF key; optional **haptic vest** UI (bridge toggle + card pane — the vest WebSocket / `[touch:]` handler is not wired in this tree); **Telegram** (public HTTPS URL, webhook secret, your chat id, one bot per companion); timezone (from the browser). |
+| | **Integrations** | Mood-eval frequency; Spotify OAuth; Brave Search; **weather awareness** (Open-Meteo, lat/lon, optional location name, no key); **Klipy** GIF key; optional **haptic vest** UI (bridge toggle + card pane — the vest WebSocket / `[touch:]` handler is not wired in this tree); **Telegram** (one bot per companion, your chat id, a secret made on the first bot — no public URL); timezone (from the browser). |
 | | **Quotes** | Household one-liners for empty states and optional tab-title marquee (never during a call). |
 
 **LLM providers:** LM Studio (local OpenAI-compatible), Anthropic (Claude — large system prompts use **prompt caching**), OpenAI (custom base URL allowed), OpenRouter, or any OpenAI-compatible custom endpoint. Global defaults plus per-companion overrides. Only parameters the chosen provider accepts are sent; **`sendSamplingParams: false`** omits sampling fields entirely (max tokens and stop sequences are always sent).
@@ -277,9 +279,11 @@ A **custom** endpoint requires a model name. Paste the base URL without `/v1`; a
 
 **Claude 5-family** models on the direct Anthropic API — chat and the Tanevan pipeline — do not use the provider’s default thinking. Sonnet 5, Opus 5, and Haiku 5 are sent `thinking: { type: "disabled" }`. Opus 5.5, Fable, and Mythos reject that, so they are sent adaptive thinking at effort **low**. Thinking blocks are dropped before the text is used. Qwen3 and Qwen4 model ids on OpenAI-compatible calls are sent `reasoning: { effort: "none" }` so a thinking-on default does not come back as empty content.
 
+Before a chat request, back-to-back messages with the same role are folded into one turn. Gemma 4 in LM Studio, Mistral, and Llama reject two user turns or two assistant turns in a row. That sequence shows up when an empty or looping reply was dropped from history.
+
 ### Persona
 
-Sidebar footer. Name, gender, backstory (stable cache block), appearance (image models only), your colour, avatar, up to four **face reference** photos for couple/group shots.
+Sidebar footer. Name, gender, backstory (stable cache block), appearance (image models only), your colour, avatar, up to four **face reference** photos for couple/group shots. Those photos ride along under the same ten-image cap as a companion’s set.
 
 ### The Wall
 
@@ -341,9 +345,12 @@ Local TTS is **not** started by `./start.sh`. See **`voice/README.md`**.
 
 ### Images and short video
 
-- **ComfyUI** — local Flux + LoRA / PuLID-style reference. Default URL in this repo is **`http://127.0.0.1:8000`** (ComfyUI’s own default is often 8188 — set whichever you actually run).
+- **ComfyUI** — local Flux + LoRA / PuLID-style reference. Default URL in this repo is **`http://127.0.0.1:8000`** (ComfyUI’s own default is often 8188 — set whichever you actually run). **Test ComfyUI** hits `/system_stats` on the URL in the field (saved or typed) and names the failure: WSL2 loopback (use the Windows LAN IP and listen on `0.0.0.0`), nothing on that port, a firewall or a host that only binds `127.0.0.1`, or a name that does not resolve. A success reports version, device, VRAM, and whether the workflow is the built-in Flux + PuLID graph or a custom file.
+- A custom workflow is used when **`data/comfy-workflow.json`** exists, or when `settings.comfyui.workflowFile` points somewhere else. Export from ComfyUI in API format. Placeholders filled at generation time: `PROMPT_PLACEHOLDER`, `LORA_PLACEHOLDER`, `"SEED_PLACEHOLDER"` (leave the quotes so the seed is a number), `PREFIX_PLACEHOLDER`, `REFERENCE_PLACEHOLDER`. Without that file, the built-in Flux workflow is used. ComfyUI still receives one reference image, not the full face set.
 - **fal.ai** — cloud Flux / Flux LoRA (`falLoraUrl` on the card); Kling image-to-video.
-- **Replicate** — Flux / Flux LoRA, Ideogram Character, Nano Banana-style multi-person shots from face refs; Kling video on the same account.
+- **Replicate** — Flux / Flux LoRA, Ideogram Character, Nano Banana-style multi-person shots from face refs; Kling video on the same account. Solo shots send every stored face photo for that person. A multi-person shot reserves one photo per person, then extra angles, and stops at **10** images.
+- Kling clips (fal and Replicate) are silent unless **Video with audio** is on (`settings.videoAudio`). The toggle is on Settings → Images when the renderer is fal.ai; Replicate reads the same flag. Replicate’s model ignores a `sound` field and would otherwise add audio, so silence is sent as `generate_audio: false`.
+- Generating a clip from a gallery image accepts either local URL: `/api/gallery-image/<file>` or `/api/companions/<name>/gallery/<file>`.
 - LLM-authored scene prompts from recent chat (or the gallery scene hint), written for portrait-style generators (Nano Banana Pro / Flux). DALL·E / custom HTTP can be stored in Settings; **end-to-end generation is wired for ComfyUI, fal.ai, and Replicate**.
 - When the **image prompt writer** is **LM Studio**, solo and group shots use the small-model templates in **`lib/image-prompts-small.js`**: slot-based, no prose example to copy, explicit pronouns per person, clothing priority (current outfit, then the scene, then the default). Every other prompt-writer provider keeps the full prompts in **`lib/image-prompts.js`**.
 - A multi-person shot you are not in tells the prompt writer not to name or describe you. If the draft still contains your name, it retries once and discards that draft if your name is still there.
@@ -354,7 +361,11 @@ Web Playback SDK (browser as a Connect device), OAuth with refresh, `[spotify-se
 
 ### Telegram (optional)
 
-One bot per companion. Inbound webhooks **`POST /telegram`** and **`POST /telegram/:companion`** are registered **before** the login wall. Messages land in that companion's real 1:1 thread (same memories, same mood). Configure in Settings → Integrations: public HTTPS URL, webhook secret, your chat id, add/test bots. Replies loop through `/chat` with `x-internal-auth`.
+One bot per companion. **`telegram-poller.js`** (started by **`./start.sh`**, or PM2 as **`lr-telegram`**) long-polls Telegram and posts each update to **`POST /telegram/:companion`** on localhost. Those routes are registered **before** the login wall. Nothing has to be reachable from the internet: polling and webhooks cannot both be on for one bot, and the poller clears any webhook it finds.
+
+Messages land in that companion's real 1:1 thread (same memories, same mood). Configure in Settings → Integrations: add a BotFather token (the listener picks it up within about 30 seconds), message the bot once, **Use this chat**. A secret is generated on the first bot; regenerate it only if it leaked. **Test** sends a line to that chat. Replies still loop through `/chat` with `x-internal-auth`.
+
+Offsets live in **`data/telegram-poll-offsets.json`** (an update is never replayed). The Settings listener row reads **`data/telegram-poll-status.json`**. Log: **`~/.love-refactored/telegram.log`**. See **`README_telegram_polling.md`**.
 
 ### Diagnostics and sync
 
@@ -550,7 +561,8 @@ Settings → Memory Pipeline (or `~/tanevan-data/pipeline_config.json`): global 
 | `GET` | `/inject` `/search` `/memories` | Retrieval and browse (`/inject` accepts `?budget=` tokens) |
 | `PUT` | `/memory/<id>` | Edit flags/content (`protected`, `sensitive` included) |
 | `POST` | `/buffer` `/flush` | Ingest / run pipeline |
-| `POST` | `/import` · `GET` `/import/status/<job_id>` | Bulk history (chunked async, 100-message batches; 50k+ messages tested) |
+| `POST` | `/buffer/replace-last` | Overwrite the newest buffered line of that role (the showing reroll). Does not start a run. If the buffer just flushed, the line is appended instead |
+| `POST` | `/import` · `GET` `/import/status/<job_id>` | Bulk history. Sessions are cut like a live flush (idle gap, then token cap), then capped at 100 messages. 50k+ tested. Does not fire the brief sidecar |
 | `POST` | `/decay` `/consolidate` `/consolidate/apply` | Maintenance |
 | `GET` | `/audit` | Merge / guard trail |
 | `POST` | `/reflect` · `GET` `/reflections` `/living-narrative` `/reflection-injection` | Reflections |
@@ -695,7 +707,7 @@ Password min 12 characters. Restart after creating `auth.js`.
 ./start.sh
 ```
 
-Opens **http://localhost:3000**, starts Whisper (`:5555`), the UI server (**nodemon** locally; plain **node** when **`LR_PROFILE=vps`**), then Tanevan (`:5001`) when at least one companion exists (or **`TANEVAN_COMPANION_NAME`** is set). On a fresh install with no companions, create one and re-run **`./start.sh`** to bring memory online.
+Opens **http://localhost:3000**, starts Whisper (`:5555`), the UI server (**nodemon** locally; plain **node** when **`LR_PROFILE=vps`**), the Telegram poller (no extra port), then Tanevan (`:5001`) when at least one companion exists (or **`TANEVAN_COMPANION_NAME`** is set). On a fresh install with no companions, create one and re-run **`./start.sh`** to bring memory online.
 
 `./start.sh` is for your own computer. On a VPS, use PM2 instead — see the next section.
 
@@ -743,7 +755,7 @@ Memory: 8 GB is comfortable. On 4 GB, add `WHISPER_MODEL=base` to `.env`.
 | **`TANEVAN_PROXY_HOST`** | `127.0.0.1` | Tanevan bind (keep localhost on a VPS) |
 | **`TANEVAN_URL`** | from settings | Node → Tanevan |
 
-Process logs: **`~/.love-refactored/`** (`ui.log`, `whisper.log`, `tanevan.log`, `pids.txt`).
+Process logs: **`~/.love-refactored/`** (`ui.log`, `whisper.log`, `tanevan.log`, `telegram.log`, `pids.txt`).
 
 ```bash
 npm start          # same as ./start.sh
@@ -781,6 +793,7 @@ LoveRefactored/
 │   ├── backups/           # love-*.db snapshots
 │   └── …                  # chat_logs/, journals/, groups/, parlors/, debug-log/, auth/, …
 ├── start.sh / stop.sh
+├── telegram-poller.js     # Outbound Telegram listener (start.sh / PM2 lr-telegram)
 ├── ecosystem.config.cjs   # PM2 config for a VPS — all services (see Setup → 10)
 ├── LICENSE.md
 ├── CLA.md
@@ -835,7 +848,7 @@ On a VPS, only **3000** should be reachable from the internet. Tanevan, Whisper,
 - **Voice memos: text only** — pick a TTS provider and start the matching `voice/` server; confirm MP3s under `data/voice_messages/`. Transcription still needs Whisper on **5555**.
 - **Live voice calls fail** — ElevenLabs key + per-companion **Agent ID**; mic permission; debug log `elevenlabs-convai` / `voice-context`.
 - **No video** — Anam key, Avatar ID, and Agent ID all set.
-- **Images** — ComfyUI reachable with Flux + workflow nodes; fal: `imageProvider` `fal` + key + optional `falLoraUrl`; Replicate: token + face refs for couple/group.
+- **Images** — **Test ComfyUI** in Settings names a bad URL (WSL2 loopback, wrong port, firewall). Custom graphs belong in `data/comfy-workflow.json`. fal: `imageProvider` `fal` + key + optional `falLoraUrl`; Replicate: token + face refs for couple/group. Kling clips stay silent unless **Video with audio** is on.
 - **GIFs missing** — Klipy key in Settings → Integrations; companions use `[gif: …]`.
 - **Spotify** — Premium; use “Play in Love Refactored” where applicable.
 - **Memory** — Tanevan on **5001** (re-run `./start.sh` after the first companion); Settings → Server & schedule / Pipeline tests. Upgrading the store: `backfill_entities.py` then `reembed.py`. No life brief until a Brief model is set and a session summary has completed. A hand-edited brief stays locked until you regenerate. Scene notes need 20 new 1:1 messages after the last mini. Reflections only reach chat when Character → Intermediate continuity is on. If automatic memory runs fail three times in a row, that companion’s auto-flush pauses and the buffer is held until you flush manually or restart Tanevan.
@@ -862,6 +875,7 @@ On a VPS, only **3000** should be reachable from the internet. Tanevan, Whisper,
 | **`CLA.md`** | Contributor license agreement |
 | **`BETA_AGREEMENT.md`** | Beta participation terms — accepted in-app on first launch |
 | **`SECURITY.md`** | Where to report bugs and security issues, and what to scrub first |
+| **`README_telegram_polling.md`** | Telegram poller: offsets, heartbeat, how a bot is added |
 
 ---
 
