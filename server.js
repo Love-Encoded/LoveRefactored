@@ -9914,7 +9914,18 @@ app.post('/api/generate-image', async (req, res) => {
       });
       const data = await response.json();
       promptId = data.prompt_id;
-      if (!promptId) throw new Error('No prompt_id returned from ComfyUI');
+      if (!promptId) {
+        // ComfyUI rejected the workflow before queueing it. It tells us exactly
+        // which node and value it didn't like — pass that on instead of a shrug.
+        const nodeErrs = data.node_errors && typeof data.node_errors === 'object'
+          ? Object.entries(data.node_errors).map(([id, ne]) => {
+              const title = ne?.class_type || `node ${id}`;
+              const msgs = (ne?.errors || []).map(x => x.message + (x.details ? ` (${x.details})` : '')).join('; ');
+              return `${title}: ${msgs || 'invalid input'}`;
+            }).join(' | ')
+          : '';
+        throw new Error(`ComfyUI rejected the workflow — ${data.error?.message || 'validation failed'}${nodeErrs ? ' — ' + nodeErrs : ''}`);
+      }
       if (apiPayloads[genLog.id]) apiPayloads[genLog.id].promptId = promptId;
       console.log(`🖼️ ComfyUI job queued: ${promptId}`);
     } catch (e) {
