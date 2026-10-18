@@ -5881,6 +5881,7 @@ app.post('/chat', async (req, res) => {
   }
 
   normalizeMessagesForProvider(conversationMessages, companionSettings.provider);
+  coalesceSameRoleTurns(conversationMessages);
 
   const stableWithBrief = briefText ? `${systemStable}\n\n${briefText}` : systemStable;
   const finalized = finalizeChatSystemPrompt(stableWithBrief, systemDynamic, card, companion);
@@ -6823,6 +6824,29 @@ function adaptContentPartForProvider(part, provider) {
   }
 
   return part;
+}
+
+// Local chat templates (Gemma 4 in LM Studio, Mistral, Llama) reject two user
+// turns or two assistant turns in a row. That happens whenever an empty or
+// garbage reply gets dropped from history. Fold same-role neighbours into one
+// message so roles always alternate. Mutates in place.
+function coalesceSameRoleTurns(messages) {
+  if (!Array.isArray(messages) || messages.length < 2) return;
+  const toParts = (c) => (Array.isArray(c) ? c : [{ type: 'text', text: typeof c === 'string' ? c : (c == null ? '' : String(c)) }]);
+  let merged = 0;
+  for (let i = messages.length - 1; i > 0; i--) {
+    const prev = messages[i - 1], cur = messages[i];
+    if (!prev || !cur || prev.role !== cur.role) continue;
+    if (prev.role !== 'user' && prev.role !== 'assistant') continue;
+    if (typeof prev.content === 'string' && typeof cur.content === 'string') {
+      prev.content = prev.content.trimEnd() + '\n\n' + cur.content.trimStart();
+    } else {
+      prev.content = [...toParts(prev.content), ...toParts(cur.content)];
+    }
+    messages.splice(i, 1);
+    merged++;
+  }
+  if (merged) console.warn(`🧵 Merged ${merged} back-to-back same-role message(s) so roles alternate`);
 }
 
 /** In-place: ensure each message's multimodal `content` matches the target provider's API. */
