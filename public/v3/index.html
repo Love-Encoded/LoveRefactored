@@ -3592,6 +3592,7 @@ html.kiosk #kiosk-eye.on{background:var(--live);opacity:1;box-shadow:0 0 10px va
             <div class="field" id="cu-field">
               <label for="cu-url">ComfyUI URL</label>
               <input class="inp" id="cu-url" placeholder="http://127.0.0.1:8000">
+              <div class="diag"><span class="st" id="cu-status"></span><button class="btn ghost tiny" id="cu-test">Test ComfyUI</button></div>
             </div>
             <div class="field" id="fal-field">
               <label for="fal-key">fal.ai API key</label>
@@ -11390,6 +11391,12 @@ document.addEventListener('lr:companions',function(){ if(TGS) tgPaint(); });
 wireBtn('#wx-test',function(){ say('#wx-status','fetching…'); G.jget('/api/weather/test').catch(function(e){ return {error:G.errMsg(e)}; }).then(function(r){
   if(!r||r.error){ say('#wx-status',(r&&r.error)||'failed',true); G.toast('Weather test failed: '+((r&&r.error)||'no answer')); return; }
   say('#wx-status', [r.temperature!=null?(r.temperature+'°'):null, r.description||r.condition||r.summary].filter(Boolean).join(' · ')||'ok'); }); });
+wireBtn('#cu-test',function(b){ b.disabled=true; say('#cu-status','testing…');
+  var url=(document.querySelector('#cu-url')||{}).value||'';
+  G.jget('/api/comfyui/test?url='+encodeURIComponent(url.trim())).catch(function(e){ return {error:G.errMsg(e)}; }).then(function(r){ b.disabled=false;
+    if(!r||!r.ok){ say('#cu-status','unreachable',true); G.modal({title:'ComfyUI not reachable',kind:'warn',body:(r&&r.error)||'no answer'}); return; }
+    say('#cu-status', [r.version, r.device, r.vramGb?r.vramGb+' GB':null].filter(Boolean).join(' · '));
+    G.ok('ComfyUI connected · '+r.workflow); }); });
 
 /* ═══════════ APPEARANCE (v3 prefs, saved with the rest) ═══════════ */
 var UI=[

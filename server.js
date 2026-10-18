@@ -4900,6 +4900,44 @@ async function getCurrentDateTimeString() {
   return `[${parts.join(' | ')}]`;
 }
 
+// Settings → "Test ComfyUI". Tries the URL the user typed (?url=) or the saved
+// one, hits /system_stats, and returns a human-readable verdict. Uses
+// explainFetchError so WSL2 / firewall / wrong-port cases get named.
+app.get('/api/comfyui/test', async (req, res) => {
+  const settings = getSettings();
+  const raw = (typeof req.query.url === 'string' && req.query.url.trim()) || settings.comfyui?.url || 'http://127.0.0.1:8000';
+  const comfyUrl = (raw.startsWith('http') ? raw : `http://${raw}`).replace(/\/$/, '');
+  const workflowPath = path.join(__dirname, settings.comfyui?.workflowFile || 'data/comfy-workflow.json');
+  const workflow = fs.existsSync(workflowPath)
+    ? `custom (${path.relative(__dirname, workflowPath)})`
+    : 'built-in Flux + PuLID';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6000);
+  try {
+    const r = await fetch(`${comfyUrl}/system_stats`, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!r.ok) {
+      return res.json({ ok: false, url: comfyUrl, workflow, error: `${comfyUrl} answered HTTP ${r.status} — something is on that port, but it doesn't look like ComfyUI.` });
+    }
+    const stats = await r.json();
+    const dev = Array.isArray(stats.devices) && stats.devices[0] ? stats.devices[0] : null;
+    return res.json({
+      ok: true,
+      url: comfyUrl,
+      workflow,
+      version: stats.system?.comfyui_version || 'unknown version',
+      device: dev ? dev.name : 'no GPU reported',
+      vramGb: dev && dev.vram_total ? Math.round(dev.vram_total / 1073741824) : null
+    });
+  } catch (e) {
+    clearTimeout(timer);
+    const err = e && e.name === 'AbortError'
+      ? { message: 'no answer after 6 seconds', cause: { code: 'ETIMEDOUT' } }
+      : e;
+    return res.json({ ok: false, url: comfyUrl, workflow, error: explainFetchError(err, comfyUrl, 'ComfyUI') });
+  }
+});
+
 // === WEATHER TEST ===
 app.get('/api/weather/test', async (req, res) => {
   invalidateWeatherCache();
@@ -6824,6 +6862,32 @@ function adaptContentPartForProvider(part, provider) {
   }
 
   return part;
+}
+
+// Turn Node's bare "fetch failed" into something a human can act on. Pulls the
+// real cause (ECONNREFUSED, ETIMEDOUT…) out of e.cause and, when LR is running
+// inside WSL2 and the URL points at loopback, says so — 127.0.0.1 inside WSL is
+// Ubuntu, not Windows.
+let _isWsl = null;
+function isRunningInWsl() {
+  if (_isWsl !== null) return _isWsl;
+  try { _isWsl = /microsoft/i.test(fs.readFileSync('/proc/version', 'utf8')); } catch { _isWsl = false; }
+  return _isWsl;
+}
+function explainFetchError(e, url, serviceName) {
+  const code = e?.cause?.code || e?.code || '';
+  const base = code ? `${e.message} (${code})` : e.message;
+  let host = '';
+  try { host = new URL(url.startsWith('http') ? url : `http://${url}`).hostname; } catch { /* keep empty */ }
+  const loopback = /^(127\.|localhost$|::1$)/.test(host);
+  if (loopback && isRunningInWsl()) {
+    return `${base} — LR is running inside WSL2, so ${host} is Ubuntu's own loopback, not Windows. ` +
+      `If ${serviceName} runs on Windows, use your Windows LAN IP (looks like 192.168.x.x) and make sure ${serviceName} is set to listen on 0.0.0.0.`;
+  }
+  if (code === 'ECONNREFUSED') return `${base} — ${host} answered but nothing is listening on that port. Check the port ${serviceName} actually uses.`;
+  if (code === 'ETIMEDOUT' || code === 'EHOSTUNREACH') return `${base} — reached the network but ${host} never answered. Usually Windows Firewall, or ${serviceName} is only listening on 127.0.0.1.`;
+  if (code === 'ENOTFOUND') return `${base} — "${host}" is not a hostname this machine can resolve. Use an IP address.`;
+  return base;
 }
 
 // Local chat templates (Gemma 4 in LM Studio, Mistral, Llama) reject two user
@@ -9854,9 +9918,10 @@ app.post('/api/generate-image', async (req, res) => {
       if (apiPayloads[genLog.id]) apiPayloads[genLog.id].promptId = promptId;
       console.log(`🖼️ ComfyUI job queued: ${promptId}`);
     } catch (e) {
-      updateLog(genLog.id, { direction: 'inbound', status: 'error', duration: Date.now() - tComfy0, details: imagePromptLogDetails(genLog, e.message) });
-      if (apiPayloads[genLog.id]) apiPayloads[genLog.id].error = e.message;
-      return res.json({ error: `ComfyUI error: ${e.message}` });
+      const why = explainFetchError(e, comfyUrl, 'ComfyUI');
+      updateLog(genLog.id, { direction: 'inbound', status: 'error', duration: Date.now() - tComfy0, details: imagePromptLogDetails(genLog, why) });
+      if (apiPayloads[genLog.id]) apiPayloads[genLog.id].error = why;
+      return res.json({ error: `ComfyUI error: ${why}` });
     }
 
     // === Poll until complete (max 600 seconds) ===
