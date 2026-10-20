@@ -8213,6 +8213,15 @@ app.post('/group-chat-reroll', async (req, res) => {
 const COMFYUI_FLUX_WORKFLOW = {"2":{"inputs":{"clip_name1":"clip_l.safetensors","clip_name2":"t5xxl_fp16.safetensors","type":"flux","device":"default"},"class_type":"DualCLIPLoader","_meta":{"title":"DualCLIPLoader"}},"3":{"inputs":{"vae_name":"ae.safetensors"},"class_type":"VAELoader","_meta":{"title":"Load VAE"}},"5":{"inputs":{"text":"PROMPT_PLACEHOLDER","clip":["20",1]},"class_type":"CLIPTextEncode","_meta":{"title":"CLIP Text Encode (Prompt)"}},"6":{"inputs":{"guidance":3.5,"conditioning":["5",0]},"class_type":"FluxGuidance","_meta":{"title":"FluxGuidance"}},"7":{"inputs":{"model":["29",0],"conditioning":["6",0]},"class_type":"BasicGuider","_meta":{"title":"BasicGuider"}},"8":{"inputs":{"sampler_name":"euler"},"class_type":"KSamplerSelect","_meta":{"title":"KSamplerSelect"}},"9":{"inputs":{"scheduler":"beta","steps":20,"denoise":1,"model":["18",0]},"class_type":"BasicScheduler","_meta":{"title":"BasicScheduler"}},"10":{"inputs":{"noise_seed":42},"class_type":"RandomNoise","_meta":{"title":"RandomNoise"}},"11":{"inputs":{"width":1024,"height":1024,"batch_size":1},"class_type":"EmptySD3LatentImage","_meta":{"title":"EmptySD3LatentImage"}},"12":{"inputs":{"noise":["10",0],"guider":["7",0],"sampler":["8",0],"sigmas":["9",0],"latent_image":["11",0]},"class_type":"SamplerCustomAdvanced","_meta":{"title":"SamplerCustomAdvanced"}},"13":{"inputs":{"samples":["12",0],"vae":["3",0]},"class_type":"VAEDecode","_meta":{"title":"VAE Decode"}},"14":{"inputs":{"filename_prefix":"selfie","images":["13",0]},"class_type":"SaveImage","_meta":{"title":"Save Image"}},"18":{"inputs":{"unet_name":"flux1-dev-Q8_0.gguf"},"class_type":"UnetLoaderGGUF","_meta":{"title":"Unet Loader (GGUF)"}},"20":{"inputs":{"lora_name":"LORA_PLACEHOLDER","strength_model":0.7,"strength_clip":0.8,"model":["18",0],"clip":["2",0]},"class_type":"LoraLoader","_meta":{"title":"Load LoRA"}},"23":{"inputs":{"image":"REFERENCE_PLACEHOLDER"},"class_type":"LoadImage","_meta":{"title":"Load Image"}},"29":{"inputs":{"weight":0.7,"start_at":0,"end_at":1,"model":["20",0],"pulid_flux":["32",0],"eva_clip":["30",0],"face_analysis":["31",0],"image":["23",0]},"class_type":"ApplyPulidFlux","_meta":{"title":"Apply PuLID Flux"}},"30":{"inputs":{},"class_type":"PulidFluxEvaClipLoader","_meta":{"title":"Load Eva Clip (PuLID Flux)"}},"31":{"inputs":{"provider":"CPU"},"class_type":"PulidFluxInsightFaceLoader","_meta":{"title":"Load InsightFace (PuLID Flux)"}},"32":{"inputs":{"pulid_file":"pulid_flux_v0.9.1.safetensors"},"class_type":"PulidFluxModelLoader","_meta":{"title":"Load PuLID Flux Model"}}};
 const COMFYUI_NOLORA_WORKFLOW = {"2":{"inputs":{"clip_name1":"clip_l.safetensors","clip_name2":"t5xxl_fp16.safetensors","type":"flux","device":"default"},"class_type":"DualCLIPLoader","_meta":{"title":"DualCLIPLoader"}},"3":{"inputs":{"vae_name":"ae.safetensors"},"class_type":"VAELoader","_meta":{"title":"Load VAE"}},"5":{"inputs":{"text":"placeholder","clip":["2",0]},"class_type":"CLIPTextEncode","_meta":{"title":"CLIP Text Encode (Prompt)"}},"6":{"inputs":{"guidance":3.5,"conditioning":["5",0]},"class_type":"FluxGuidance","_meta":{"title":"FluxGuidance"}},"7":{"inputs":{"model":["29",0],"conditioning":["6",0]},"class_type":"BasicGuider","_meta":{"title":"BasicGuider"}},"8":{"inputs":{"sampler_name":"euler"},"class_type":"KSamplerSelect","_meta":{"title":"KSamplerSelect"}},"9":{"inputs":{"scheduler":"beta","steps":20,"denoise":1,"model":["18",0]},"class_type":"BasicScheduler","_meta":{"title":"BasicScheduler"}},"10":{"inputs":{"noise_seed":42},"class_type":"RandomNoise","_meta":{"title":"RandomNoise"}},"11":{"inputs":{"width":1024,"height":1024,"batch_size":1},"class_type":"EmptySD3LatentImage","_meta":{"title":"EmptySD3LatentImage"}},"12":{"inputs":{"noise":["10",0],"guider":["7",0],"sampler":["8",0],"sigmas":["9",0],"latent_image":["11",0]},"class_type":"SamplerCustomAdvanced","_meta":{"title":"SamplerCustomAdvanced"}},"13":{"inputs":{"samples":["12",0],"vae":["3",0]},"class_type":"VAEDecode","_meta":{"title":"VAE Decode"}},"14":{"inputs":{"filename_prefix":"companion_selfie","images":["13",0]},"class_type":"SaveImage","_meta":{"title":"Save Image"}},"18":{"inputs":{"unet_name":"flux1-dev-Q8_0.gguf"},"class_type":"UnetLoaderGGUF","_meta":{"title":"Unet Loader (GGUF)"}},"23":{"inputs":{"image":"nova.jpg"},"class_type":"LoadImage","_meta":{"title":"Load Image"}},"29":{"inputs":{"weight":0.7,"start_at":0,"end_at":1,"model":["18",0],"pulid_flux":["32",0],"eva_clip":["30",0],"face_analysis":["31",0],"image":["23",0]},"class_type":"ApplyPulidFlux","_meta":{"title":"Apply PuLID Flux"}},"30":{"inputs":{},"class_type":"PulidFluxEvaClipLoader","_meta":{"title":"Load Eva Clip (PuLID Flux)"}},"31":{"inputs":{"provider":"CPU"},"class_type":"PulidFluxInsightFaceLoader","_meta":{"title":"Load InsightFace (PuLID Flux)"}},"32":{"inputs":{"pulid_file":"pulid_flux_v0.9.1.safetensors"},"class_type":"PulidFluxModelLoader","_meta":{"title":"Load PuLID Flux Model"}}};
 
+// Plain Flux — no LoRA, no PuLID. Built from the PuLID workflow by dropping the
+// face nodes (23, 29–32) and wiring the guider straight to the base model.
+const COMFYUI_PLAIN_WORKFLOW = (() => {
+  const w = JSON.parse(JSON.stringify(COMFYUI_NOLORA_WORKFLOW));
+  for (const id of ['23', '29', '30', '31', '32']) delete w[id];
+  w['7'].inputs.model = ['18', 0];
+  return w;
+})();
+
 async function generateCompanionPhoto(companionName, sceneHint) {
   const response = await fetch(`http://127.0.0.1:${PORT}/api/generate-image`, {
     method: 'POST',
@@ -8627,8 +8636,10 @@ app.post('/api/generate-image', async (req, res) => {
 
   const card = getCompanion(companionName);
   const falEnabled = settings.imageProvider === 'fal' && settings.fal?.apiKey;
-  if (!falEnabled && !replicateEnabled && !card.loraPath && !card.referenceImage) {
-    return res.json({ error: 'No image generation method configured for this companion. Enable fal.ai, Replicate, or set a LoRA/reference image.' });
+  // ComfyUI can run bare (plain Flux) — a LoRA or reference image is a bonus, not a requirement.
+  const comfyEnabled = !!settings.comfyui?.enabled;
+  if (!falEnabled && !replicateEnabled && !comfyEnabled && !card.loraPath && !card.referenceImage) {
+    return res.json({ error: 'No image generation method configured for this companion. Enable fal.ai, Replicate, or ComfyUI in Settings → Images.' });
   }
   const useLoRA = !!card.loraPath;
   const imagePromptSettings = getImagePromptWriterSettings(companionName, settings);
@@ -8773,8 +8784,11 @@ app.post('/api/generate-image', async (req, res) => {
   } else if (mode !== 'multi') {
     try {
       const useSmallPrompt = imagePromptSettings.provider === 'lmstudio';
+      // Is there an actual face reference for this shot? ComfyUI uses card.referenceImage;
+      // fal/Replicate use the face photo set. Neither → the prompt must describe the face itself.
+      const hasReference = !!card.referenceImage || refImageList(card).length > 0;
       const promptSystemMsg = useSmallPrompt
-        ? buildSoloImagePromptSystemSmall({ useLoRA })
+        ? buildSoloImagePromptSystemSmall({ useLoRA, hasReference })
         : buildSoloImagePromptSystem({ useLoRA });
 
       const recentMessages = history
@@ -9869,12 +9883,18 @@ app.post('/api/generate-image', async (req, res) => {
       workflow['14'].inputs.filename_prefix = `${safeName}_selfie`;
       workflow['20'].inputs.lora_name = card.loraPath;
       workflow['23'].inputs.image = card.referenceImage;
-    } else {
+    } else if (card.referenceImage) {
       workflow = JSON.parse(JSON.stringify(COMFYUI_NOLORA_WORKFLOW));
       workflow['5'].inputs.text = imagePrompt;
       workflow['10'].inputs.noise_seed = Math.floor(Math.random() * 2147483647);
       workflow['14'].inputs.filename_prefix = `${safeName}_selfie`;
       workflow['23'].inputs.image = card.referenceImage;
+    } else {
+      // Bare companion: plain Flux, prompt only. No face lock — looks will drift between shots.
+      workflow = JSON.parse(JSON.stringify(COMFYUI_PLAIN_WORKFLOW));
+      workflow['5'].inputs.text = imagePrompt;
+      workflow['10'].inputs.noise_seed = Math.floor(Math.random() * 2147483647);
+      workflow['14'].inputs.filename_prefix = `${safeName}_selfie`;
     }
 
     let comfyHost = comfyUrl;
