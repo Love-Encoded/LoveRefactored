@@ -9873,8 +9873,28 @@ app.post('/api/generate-image', async (req, res) => {
         .replace(/"SEED_PLACEHOLDER"/g, String(Math.floor(Math.random() * 2147483647)))
         .replace(/PREFIX_PLACEHOLDER/g, `${safeName}_selfie`)
         .replace(/REFERENCE_PLACEHOLDER/g, card.referenceImage || '');
-      workflow = JSON.parse(raw);
+      try {
+        workflow = JSON.parse(raw);
+      } catch (e) {
+        return res.json({ error: `Custom ComfyUI workflow isn't valid JSON (${path.relative(__dirname, customWorkflowPath)}): ${e.message}. Check that every placeholder still has its quotes around it.` });
+      }
       console.log(`🖼️ Using custom ComfyUI workflow: ${customWorkflowPath}`);
+      // No LoRA on the card → bypass any LoRA node left holding a blank name instead of
+      // handing ComfyUI an empty lora_name it will reject. Whatever read from the LoRA node
+      // now reads from what fed into it (model → model, clip → clip), then the node is removed.
+      if (!card.loraPath) {
+        for (const [id, node] of Object.entries(workflow)) {
+          if (!/^LoraLoader/.test(node?.class_type || '') || node.inputs?.lora_name) continue;
+          const passthrough = { 0: node.inputs.model, 1: node.inputs.clip };
+          for (const other of Object.values(workflow)) {
+            for (const [key, val] of Object.entries(other.inputs || {})) {
+              if (Array.isArray(val) && String(val[0]) === id && passthrough[val[1]]) other.inputs[key] = passthrough[val[1]];
+            }
+          }
+          delete workflow[id];
+          console.log(`🪄 No LoRA on ${companionName} — bypassed ${node.class_type} node ${id}`);
+        }
+      }
     } else if (useLoRA) {
       imagePrompt = (card.loraTrigger ? card.loraTrigger + ', ' : '') + imagePrompt;
       workflow = JSON.parse(JSON.stringify(COMFYUI_FLUX_WORKFLOW));
