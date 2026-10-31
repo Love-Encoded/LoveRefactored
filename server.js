@@ -6041,7 +6041,7 @@ app.post('/chat', async (req, res) => {
         headers: anthropicHeaders,
         body: JSON.stringify({
           model: companionSettings.anthropic.model || DEFAULT_SONNET_MODEL,
-          max_tokens: companionSettings.maxTokens || 1000,
+          max_tokens: companionSettings.maxTokens || 4000,
           ...anthropicThinkingPin(companionSettings.anthropic?.model),  // anthropic_thinking_pin_v2
           ...anthropicSamplingFields(companionSettings.temperature || 0.8, companionSettings, shouldSendSamplingParams(companionSettings)),
           system: anthropicSystem,
@@ -6098,7 +6098,7 @@ app.post('/chat', async (req, res) => {
           ...conversationMessages
         ],
         ...(sendSampling && { temperature: companionSettings.temperature || 0.8 }),
-        max_tokens: companionSettings.maxTokens || 1000,
+        max_tokens: companionSettings.maxTokens || 4000,
         ...(sendSampling && companionSettings.topP != null && companionSettings.topP !== 1 && { top_p: companionSettings.topP }),
         ...(sendSampling && companionSettings.topK != null && companionSettings.topK > 0 && { top_k: companionSettings.topK }),
         ...(sendSampling && companionSettings.minP != null && companionSettings.minP > 0 && { min_p: companionSettings.minP }),
@@ -6980,7 +6980,7 @@ function customChatCompletionsUrl(raw) {
 
 // === LLM HELPER (shared by /chat and /group-chat) ===
 async function callLLM(systemPrompt, messages, settings, opts = {}) {
-  const maxTokens = opts.maxTokens || settings.maxTokens || 1000;
+  const maxTokens = opts.maxTokens || settings.maxTokens || 4000;
   const temperature = opts.temperature !== undefined ? opts.temperature : (settings.temperature || 0.8);
   const skipAnthropicPromptCache = opts.skipAnthropicPromptCache === true;
   const promptCachingEnabled = isPromptCachingEnabled(settings, opts);
@@ -7216,7 +7216,7 @@ async function callLLM(systemPrompt, messages, settings, opts = {}) {
 }
 
 async function* callLLMStreaming(systemPrompt, messages, settings, opts = {}) {
-  const maxTokens = opts.maxTokens || settings.maxTokens || 1000;
+  const maxTokens = opts.maxTokens || settings.maxTokens || 4000;
   const temperature = opts.temperature !== undefined ? opts.temperature : (settings.temperature || 0.8);
   const skipAnthropicPromptCache = opts.skipAnthropicPromptCache === true;
   const promptCachingEnabled = isPromptCachingEnabled(settings, opts);
