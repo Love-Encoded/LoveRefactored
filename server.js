@@ -2423,6 +2423,33 @@ function buildUserPersonaStableBlock(card, persona) {
   return '';
 }
 
+/* group_room_v1 — the room-aware USER PERSONA for group chat and group reroll.
+   Same persona content as buildUserPersonaStableBlock; only the addressing rule changes:
+   answer whoever just spoke, and "you" is only ever the person who spoke last. */
+function buildGroupUserPersonaStableBlock(card, persona, otherNames = []) {
+  const who = (persona && persona.name && String(persona.name).trim()) || 'the user';
+  const others = (Array.isArray(otherNames) ? otherNames : []).filter(Boolean);
+  const othersText = others.length ? others.join(', ') : 'the others';
+  const roomRule =
+    `${who} is in the room with you, and so ${others.length === 1 ? 'is' : 'are'} ${othersText}. Every line in this thread is tagged with who said it.\n` +
+    `Answer whoever just spoke. When the last line is ${who}'s, talk to ${who} as "you". When the last line is tagged with someone else's name, talk to THEM — and refer to ${who} by name or by what you call ${who}, never as "you". ` +
+    `A line tagged with someone else's name is theirs, not ${who}'s. A line tagged with a name and 📱 is a guest ${who} brought in; they are not ${who}.`;
+  const override = (card.userPersonaOverride || '').trim();
+  if (override) {
+    return `\n\n[USER PERSONA — Who ${who} is to you.]\n${roomRule}\n${override}\n[END USER PERSONA]`;
+  }
+  if (persona.name || persona.backstory) {
+    let personaBlock = `\n\n[USER PERSONA — Who ${who} is to you.]`;
+    personaBlock += `\n${roomRule}`;
+    if (persona.name) personaBlock += `\nName: ${persona.name}`;
+    if (persona.gender) personaBlock += `\nGender: ${persona.gender}`;
+    if (persona.backstory) personaBlock += `\n${persona.backstory}`;
+    personaBlock += '\n[END USER PERSONA]';
+    return personaBlock;
+  }
+  return '';
+}
+
 /** Compact user persona for voice agent context API (no leading newlines). */
 function buildUserPersonaVoiceContext(card, persona) {
   const override = (card.userPersonaOverride || '').trim();
@@ -3123,6 +3150,16 @@ function broadcastHistoryUpdated(name, messageCount) {
       if (client.readyState === 1) client.send(notification);
     });
   } catch (_e) { /* don't let broadcast errors break saves */ }
+}
+
+// couch_v2: tell open web clients a group thread grew (couch lines, Telegram replies) so the group view refreshes itself.
+function broadcastGroupUpdated(groupId) {
+  try {
+    const wss = app.get('wss');
+    if (!wss) return;
+    const notification = JSON.stringify({ type: 'group-updated', groupId, timestamp: Date.now() });
+    wss.clients.forEach((client) => { if (client.readyState === 1) client.send(notification); });
+  } catch (_e) { /* never break a save over a broadcast */ }
 }
 
 function ensureProactiveMsgId(message) {
@@ -7523,7 +7560,8 @@ app.post('/group-chat', async (req, res) => {
 
   const companionSummaries = groupMembers.map(name => {
     const card = getCompanion(name) || {};
-    const blurb = (card.backstory || card.personalityVoice || '').slice(0, 100);
+    const gcpLine = String(card.voiceAnchor || '').split('\n').map(s => s.trim()).filter(s => s && !/^\[.*\]$/.test(s))[0] || ''; // group_router_v1: first real line of the Group Chat Profile (skips [SECTION] headers)
+    const blurb = (gcpLine || card.backstory || card.personalityVoice || '').slice(0, 160);
     return `- ${name}: ${blurb}`;
   }).join('\n');
 
@@ -7536,7 +7574,7 @@ app.post('/group-chat', async (req, res) => {
       routerPrompt,
       [{ role: 'user', content: routerUserText }],
       settings,
-      { maxTokens: 100, temperature: 0.3 }
+      { maxTokens: 1000, temperature: 0.3 } // group_router_v1: the array is tiny; the headroom is for the model's thinking, which spends from this same budget
     );
     const cleaned = routerReply.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsed = JSON.parse(cleaned);
@@ -7545,9 +7583,13 @@ app.post('/group-chat', async (req, res) => {
       if (valid.length > 0) selectedCompanions = valid;
     }
   } catch (e) {
-    console.log('Router fallback — all companions will respond:', e.message);
+    // group_router_v1: whoever was named answers; nobody named → the first two. Never the whole room.
+    const namedFallback = groupMembers.filter(n => messageMentionsName(routerUserText, n)).slice(0, GROUP_ROUTER_MAX_RESPONDERS);
+    selectedCompanions = namedFallback.length ? namedFallback : groupMembers.slice(0, 2);
+    console.log(`Router fallback — ${selectedCompanions.join(', ')} will respond:`, e.message);
   }
 
+  console.log(`🧭 router → ${selectedCompanions.length ? selectedCompanions.join(', ') : 'nobody'}`); // group_router_v1
   // Buffer the user's message to Tanevan for every companion in the group
   for (const name of groupMembers) {
     bufferToTanevan('user', message, settings, name, groupUserTimestamp);
@@ -7605,7 +7647,7 @@ app.post('/group-chat', async (req, res) => {
 
       systemStable += `\n\nYou are in a group chat with ${otherNames.join(', ')}. Respond naturally as part of the group conversation. Don't try to speak for the other companions.`;
 
-      systemStable += buildUserPersonaStableBlock(card, persona);
+      systemStable += buildGroupUserPersonaStableBlock(card, persona, otherNames);
 
       systemStable += buildGroupChatToolsBlock(settings, card);
 
@@ -7706,9 +7748,9 @@ app.post('/group-chat', async (req, res) => {
       if (m.sender === companionName) return { role: 'assistant', content: m.text };
       // Other companions: use name field for OpenAI-compat, bracketed prefix for Anthropic
       if (isAnthropicProvider) {
-        return { role: 'user', content: `[${m.sender} said]: ${m.text}` };
+        return { role: 'user', content: `[${m.sender}]: ${m.text}` };
       }
-      return { role: 'user', content: `[${m.sender} said]: ${m.text}`, name: m.sender.replace(/[^a-zA-Z0-9_-]/g, '_') };
+      return { role: 'user', content: `[${m.sender}]: ${m.text}`, name: m.sender.replace(/[^a-zA-Z0-9_-]/g, '_') };
     });
 
     const canUseNativeVision = providerLikelySupportsVision(companionSettings);
@@ -7771,9 +7813,12 @@ app.post('/group-chat', async (req, res) => {
       const gcT0 = Date.now();
       // Identity reinforcement: final reminder right before generation
       const otherVoices = selectedCompanions.filter(n => n !== companionName);
+      const lastLineG = runningHistory[runningHistory.length - 1]; // group_room_v1: who has the floor right now
+      const lastSpokeG = !lastLineG ? '' : (lastLineG.sender === 'user' ? ((((/^📱 \[([^\]]+)\]:/).exec(String(lastLineG.text || ''))) || [])[1] || humanLabel) : String(lastLineG.sender || ''));
+      const spokeLeadG = (lastSpokeG && lastSpokeG !== companionName) ? `${lastSpokeG} just spoke. ` : '';
       const identityReminder = otherVoices.length > 0
-        ? `[Respond now as ${companionName}. You are NOT ${otherVoices.join(', NOT ')}. Stay in YOUR voice, YOUR mannerisms, YOUR personality only.]`
-        : `[Respond now as ${companionName}. Stay in character.]`;
+        ? `[${spokeLeadG}Respond now as ${companionName}. You are NOT ${otherVoices.join(', NOT ')}. Stay in YOUR voice, YOUR mannerisms, YOUR personality only.]`
+        : `[${spokeLeadG}Respond now as ${companionName}. Stay in character.]`;
       const messagesWithReminder = [...companionMessages, { role: 'user', content: identityReminder }];
       let reply = await callLLM(systemPromptForOpenAI, messagesWithReminder, companionSettings, { systemStable, systemDynamic, ...visionOpts });
       updateLog(gcLog.id, { direction: 'inbound', status: 'success', duration: Date.now() - gcT0, details: `~${reply?.length || 0} chars` });
@@ -7898,6 +7943,7 @@ app.post('/group-chat', async (req, res) => {
       } catch (persistErr) {
         console.error('⚠️ Server-side group assistant persistence failed for', groupId, companionName, persistErr);
       }
+      broadcastGroupUpdated(groupId); // group_stream_v1: web clients draw this line now instead of waiting for the whole round
       if (group.sharedMemory !== false) {
         bufferToTanevan('assistant', reply, settings, companionName, replyTimestamp);
       }
@@ -7979,7 +8025,7 @@ app.post('/group-chat-reroll', async (req, res) => {
     }
 
     systemStable += `\n\nYou are in a group chat with ${otherNames.join(', ')}. Respond naturally as part of the group conversation. Don't try to speak for the other companions.`;
-    systemStable += buildUserPersonaStableBlock(card, persona);
+    systemStable += buildGroupUserPersonaStableBlock(card, persona, otherNames);
     systemStable += buildGroupChatToolsBlock(settings, card);
 
     if (!useGroupChatProfile(card) && card.voiceAnchor && card.voiceAnchor.trim()) {
@@ -8087,9 +8133,9 @@ app.post('/group-chat-reroll', async (req, res) => {
     if (m.sender === 'user') return { role: 'user', content: `[${humanLabel}]: ${m.text}` };
     if (m.sender === companionName) return { role: 'assistant', content: m.text };
     if (isAnthropicProvider) {
-      return { role: 'user', content: `[${m.sender} said]: ${m.text}` };
+      return { role: 'user', content: `[${m.sender}]: ${m.text}` };
     }
-    return { role: 'user', content: `[${m.sender} said]: ${m.text}`, name: m.sender.replace(/[^a-zA-Z0-9_-]/g, '_') };
+    return { role: 'user', content: `[${m.sender}]: ${m.text}`, name: m.sender.replace(/[^a-zA-Z0-9_-]/g, '_') };
   });
 
   // Inject image attachments into the matching user turn when native vision is available.
@@ -8107,9 +8153,12 @@ app.post('/group-chat-reroll', async (req, res) => {
 
   // Identity reinforcement
   const otherVoices = groupMembers.filter(n => n !== companionName);
+  const lastLineR = history[history.length - 1]; // group_room_v1: who has the floor right now
+  const lastSpokeR = !lastLineR ? '' : (lastLineR.sender === 'user' ? ((((/^📱 \[([^\]]+)\]:/).exec(String(lastLineR.text || ''))) || [])[1] || humanLabel) : String(lastLineR.sender || ''));
+  const spokeLeadR = (lastSpokeR && lastSpokeR !== companionName) ? `${lastSpokeR} just spoke. ` : '';
   const identityReminder = otherVoices.length > 0
-    ? `[Respond now as ${companionName}. You are NOT ${otherVoices.join(', NOT ')}. Stay in YOUR voice, YOUR mannerisms, YOUR personality only.]`
-    : `[Respond now as ${companionName}. Stay in character.]`;
+    ? `[${spokeLeadR}Respond now as ${companionName}. You are NOT ${otherVoices.join(', NOT ')}. Stay in YOUR voice, YOUR mannerisms, YOUR personality only.]`
+    : `[${spokeLeadR}Respond now as ${companionName}. Stay in character.]`;
   const messagesWithReminder = [...companionMessages, { role: 'user', content: identityReminder }];
 
   let rerollLog = null;

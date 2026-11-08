@@ -43,7 +43,7 @@ function registerGroupRoutes(app, deps) {
   });
 
   app.post('/api/groups', (req, res) => {
-    const { name, companions: groupCompanions, context, directive, sharedMemory } = req.body;
+    const { name, companions: groupCompanions, context, directive, sharedMemory, hue } = req.body; // group_hue_v1
     if (!name || !groupCompanions || groupCompanions.length < 2) {
       return res.status(400).json({ error: 'Group name and at least 2 companions are required' });
     }
@@ -54,6 +54,7 @@ function registerGroupRoutes(app, deps) {
       context: context || '',
       directive: directive !== undefined ? directive : DEFAULT_GROUP_DIRECTIVE,
       sharedMemory: sharedMemory !== false,
+      hue: (typeof hue === 'string' && /^#[0-9a-fA-F]{6}$/.test(hue)) ? hue : '', // group_hue_v1: the room's own colour
       createdAt: new Date().toISOString()
     };
     saveGroup(group);
@@ -63,7 +64,7 @@ function registerGroupRoutes(app, deps) {
   app.put('/api/groups/:id', (req, res) => {
     const group = getGroup(req.params.id);
     if (!group) return res.status(404).json({ error: 'Group not found' });
-    const allowed = ['name', 'companions', 'context', 'directive', 'sharedMemory'];
+    const allowed = ['name', 'companions', 'context', 'directive', 'sharedMemory', 'hue']; // group_hue_v1
     for (const key of allowed) {
       if (req.body[key] !== undefined) group[key] = req.body[key];
     }

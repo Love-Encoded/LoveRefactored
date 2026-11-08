@@ -1181,14 +1181,14 @@ button.m-stat:hover{background:var(--lamp-hi);border-color:var(--line-lit)}
   padding:8px var(--s3) 8px 14px;border-left:2px solid transparent;
   transition:background .14s,border-color .14s}
 .grow-row:hover{background:var(--lamp)}
-.grow-row[aria-current="true"]{background:var(--lamp);border-left-color:var(--ink-2)}
+.grow-row[aria-current="true"]{background:var(--lamp);border-left-color:var(--gc,var(--ink-2))} /* group_hue_v1 */
 .facestack{display:flex;flex-direction:row;align-items:center;flex-shrink:0;padding-right:6px}
 .facestack i{flex-shrink:0;width:22px;height:22px;border-radius:var(--r-full);display:grid;place-items:center;
   margin-right:-8px;font-family:var(--mono);font-size:9px;font-weight:600;
   color:var(--c);background:color-mix(in oklab,var(--c) 18%,var(--lamp-hi));
   box-shadow:0 0 0 1.5px var(--room);font-style:normal}
 .grow-meta{flex:1;min-width:0}
-.grow-meta .nm{font-size:13px;font-weight:600;color:var(--ink);line-height:1.3}
+.grow-meta .nm{font-size:13px;font-weight:600;color:var(--gc,var(--ink));line-height:1.3} /* group_hue_v1 */
 .grow-meta .sub{font-size:12px;color:var(--ink-3);line-height:1.4}
 #app.rail-thin .grow-row{justify-content:center;padding:8px 0}
 #app.rail-thin .grow-row .grow-meta,#app.rail-thin .grow-row .dot{display:none}
@@ -5402,6 +5402,7 @@ function ageLabel(a){
 function show(v){
   $$('.view').forEach(function(x){x.classList.toggle('on', x.id==='v-'+v);});
   document.documentElement.classList.toggle('in-group', v==='group');
+  try{ if(v==='group'||v==='chat') localStorage.setItem('lr.view', v); }catch(e){} /* group_resume_v1 */
   $$('#top .tbtn[data-view]').forEach(function(b){ b.classList.toggle('on', b.dataset.view===v); });
   $$('#rail .place').forEach(function(p){
     p.setAttribute('aria-current', p.dataset.view===v?'true':'false');
@@ -5878,6 +5879,13 @@ function connectWS(){
     if(msg.type==='capture-frame'){ if(window.KIOSK_MODE && LR.kioskEye) LR.kioskEye(msg.requestId); return; }
     if(msg.type==='proactive' && msg.companion){
       queueOrDeliverProactive({companion:msg.companion, text:msg.text, timestamp:msg.timestamp, msgId:msg.msgId, path:'ws'});
+      return;
+    }
+    if(msg.type==='group-updated' && msg.groupId){ /* couch_v2: a 🛋️ line or a Telegram reply landed in a group thread */
+      var gg=(LR.allGroups?LR.allGroups():[]).filter(function(x){return x.id===msg.groupId;})[0];
+      var open=LR.currentGroup&&LR.currentGroup();
+      if(gg && open && open.id===gg.id && LR.loadGroupThread) LR.loadGroupThread(gg); /* group_stream_v1: refresh mid-send too — the server now pings after every reply */
+      refreshPreviews();
       return;
     }
     if(msg.type==='history-updated' && msg.companion){
@@ -9571,6 +9579,7 @@ function drawCollections(){
 /* ═══════════ GROUP CHATS (live) ═══════════ */
 var GROUPS=[];
 var curGroup=null;
+var gResumed=false; /* group_resume_v1: the reload-return runs once, on the first groups load */
 var GPREV={};
 
 function loadGroups(){
@@ -9581,6 +9590,13 @@ function loadGroups(){
       g.last = pv ? ((pv.sender&&pv.sender!=='user'?pv.sender+': ':'')+(pv.text||'')) : (g.last||'');
     });
     if(!curGroup && GROUPS.length) curGroup=GROUPS[0].id;
+    /* group_resume_v1: a reload lands back in the room you were in — once, on the first load, never after creating a group */
+    if(!gResumed){
+      gResumed=true;
+      var rv=null, rg=null; try{ rv=localStorage.getItem('lr.view'); rg=localStorage.getItem('lr.curGroup'); }catch(e){}
+      var back=(rv==='group' && rg) ? GROUPS.filter(function(x){ return x.id===rg; })[0] : null;
+      if(back){ curGroup=back.id; drawGroups(); G.show('group'); paintGroupHead(back); loadGroupThread(back); return; }
+    }
     drawGroups();
   });
 }
@@ -9612,6 +9628,7 @@ function drawGroups(){
     var mem=(g.companions||[]).map(byName).filter(Boolean);
     var b=document.createElement('button');
     b.className='grow-row';
+    if(g.hue) b.style.setProperty('--gc', g.hue); /* group_hue_v1: the room's colour paints its name and its active bar */
     b.setAttribute('aria-current', g.id===curGroup ? 'true':'false');
     b.innerHTML='<span class="facestack">'+mem.slice(0,3).map(function(p){
         return '<i style="--c:'+p.hue+'">'+esc(p.init)+'</i>';}).join('')+'</span>'+
@@ -9619,6 +9636,7 @@ function drawGroups(){
         '<span class="sub">'+esc(g.last||'')+'</span></span>';
     b.addEventListener('click',function(){
       curGroup=g.id; drawGroups(); G.show('group'); paintGroupHead(g); loadGroupThread(g);
+      try{ localStorage.setItem('lr.curGroup', g.id); }catch(e){} /* group_resume_v1 */
     });
     box.appendChild(b);
   });
@@ -9632,7 +9650,11 @@ function drawGroups(){
 function loadGroupThread(g){
   return G.quiet(G.jget('/api/groups/'+encodeURIComponent(g.id)+'/history'), []).then(function(res){
     g.thread=Array.isArray(res)?res:[];
-    if(curGroup===g.id) G.drawGroupThread(g);
+    if(curGroup===g.id){
+      G.drawGroupThread(g);
+      /* group_stream_v1: a redraw mid-send wipes the typing dots — put them back under the newest line */
+      if(gsending && gTyping){ var gb=$('#gthread'); if(gb){ gb.appendChild(gTyping); gb.scrollTop=gb.scrollHeight; } }
+    }
     return g.thread;
   });
 }
@@ -9651,6 +9673,7 @@ function paintGroupHead(g){
   sub.textContent=mem.map(function(p){return p.name.toLowerCase();}).join(' · ');
   var formChip=$('#topform'); if(formChip) formChip.hidden=true;
   var ph=$('#v-group .grow'); if(ph) ph.dataset.ph='Message '+g.name+'…';
+  var gv=$('#v-group'); if(gv){ if(g.hue) gv.style.setProperty('--who', g.hue); else gv.style.removeProperty('--who'); } /* group_hue_v1: compose border + send button take the room's colour, not the last companion's */
   G.drawGroupThread(g);
   if(g.thread===undefined) loadGroupThread(g);
 }
@@ -9660,7 +9683,7 @@ G.allGroups=function(){ return GROUPS; };
 G.drawGroups=drawGroups;
 
 /* group compose */
-var gsending=false;
+var gsending=false, gTyping=null; /* group_stream_v1: the typing dots, so a mid-send redraw can put them back */
 var GPEND=[], gpendBox=null;
 function drawGPending(){
   if(!gpendBox){ gpendBox=document.createElement('div'); gpendBox.id='gpending'; gpendBox.className='gpending'; var cb=$('#v-group .compose .cbox'); if(cb) cb.parentNode.insertBefore(gpendBox,cb); }
@@ -9713,6 +9736,7 @@ function sendGroup(){
   gsending=true;
   var tb=$('#gthread'), tEl=null;
   if(tb){ tEl=document.createElement('div'); tEl.className='typing'; tEl.innerHTML='<span class="dots"><i></i><i></i><i></i></span><span class="lbl">someone\'s typing…</span>'; tb.appendChild(tEl); tb.scrollTop=tb.scrollHeight; }
+  gTyping=tEl;
   var gbody={message:text, groupId:g.id, history:g.thread.slice(-40)}; if(atts.length) gbody.attachments=atts;
   G.jsend('POST','/group-chat',gbody)
     .then(function(res){
@@ -9724,8 +9748,7 @@ function sendGroup(){
       /* a companion can react to what you said instead of (or as well as) replying */
       var reacts=(res.responses||[]).filter(function(r){ return r&&r.react; }).map(function(r){ return {emoji:r.react, by:r.companion||r.sender}; });
       if(reacts.length){ urow.reactions=(urow.reactions||[]).concat(reacts); }
-      rows.forEach(function(r){ g.thread.push(r); });
-      if(curGroup===g.id) G.drawGroupThread(g);
+      /* group_stream_v1: the replies were already drawn as they landed (group-updated); loadGroupThread below pulls the saved copy */
       /* /group-chat already persisted the user turn AND every reply (with the server's msgIds) —
          re-posting them here is what doubled the thread. Pull the saved copy so our ids match. */
       loadGroupThread(g).then(function(thread){
@@ -10008,6 +10031,7 @@ coll:function(){
 
 group:function(g){
   var edit=!!(g&&g.id);
+  var gHue=edit?(g.hue||''):''; /* group_hue_v1 */
   PICKED.group=edit?(g.companions||[]).slice():[];
   var DEF_DIRECTIVE='Keep responses concise — 2-3 short paragraphs max in group chat. Don\'t monologue. React to what others just said before introducing new topics. Leave room for other companions to contribute. You don\'t need to respond to everything — sometimes a short reaction or nothing at all is right.';
   return {cls:'form',html:
@@ -10015,6 +10039,11 @@ group:function(g){
   '<div class="df-body">'+
     '<div class="field"><label for="gr-n">Group name <span class="inh set">required</span></label>'+
       '<input class="inp" id="gr-n" placeholder="The Kitchen, movie night…" value="'+esc(edit?g.name||'':'')+'"></div>'+
+    '<div class="field"><label>Colour <span class="inh">optional</span></label>'+
+      '<p class="hint">Tints this room\'s compose box, and its name in the sidebar.</p>'+
+      '<div class="hues" id="gr-hues"></div>'+
+      '<div class="hue-custom" id="gr-spec" style="margin-top:var(--s3)"></div>'+
+      '<button class="btn ghost" id="gr-hue-clear" type="button" style="margin-top:6px">No colour</button></div>'+
     '<div class="field"><label>Members <span class="inh">at least two</span></label>'+
       '<div class="picker" data-picker="group"></div></div>'+
     '<div class="field"><label for="gr-s">Scene <span class="inh">optional</span></label>'+
@@ -10031,7 +10060,7 @@ group:function(g){
       var name=$('#gr-n',b).value.trim();
       var members=G.picked('group');
       if(!name||members.length<2){ G.warn('A group needs a name and at least 2 members.'); return; }
-      var body={ name:name, companions:members, context:$('#gr-s',b).value, directive:$('#gr-d',b).value, sharedMemory:$('#gr-mem',b).getAttribute('aria-pressed')==='true' };
+      var body={ name:name, companions:members, context:$('#gr-s',b).value, directive:$('#gr-d',b).value, sharedMemory:$('#gr-mem',b).getAttribute('aria-pressed')==='true', hue:gHue }; /* group_hue_v1 */
       if(edit){
         G.jsend('PUT','/api/groups/'+encodeURIComponent(g.id),body).then(function(ng){
           closeScrim();
@@ -10045,6 +10074,9 @@ group:function(g){
         }).catch(function(e){ G.fail('Could not create the group',e); });
       }
     });
+    var gSpec=G.spectrum($('#gr-spec',b), gHue||'#B44AFF', function(h){ gHue=h; G.syncHues('#gr-hues',h); }); /* group_hue_v1.1: full spectrum under the swatches, same as the persona form */
+    G.buildHues('#gr-hues', function(h){ gHue=h; G.syncHues('#gr-hues',h); if(gSpec&&gSpec._syncSpec) gSpec._syncSpec(h); }); if(gHue) G.syncHues('#gr-hues',gHue); /* group_hue_v1 */
+    var clr=$('#gr-hue-clear',b); if(clr) clr.addEventListener('click',function(){ gHue=''; G.syncHues('#gr-hues',''); });
     var del=$('#gr-del',b);
     if(del) del.addEventListener('click',function(){
       closeScrim();
