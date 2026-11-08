@@ -8785,7 +8785,21 @@ app.post('/api/generate-image', async (req, res) => {
   // === LLM call to generate a creative image prompt ===
   let imagePrompt = customPrompt || card.appearance || '';
   console.log('📸 generate-image: customPrompt =', JSON.stringify(customPrompt), '| sceneHint =', JSON.stringify(sceneHint), '| mode =', JSON.stringify(mode), '| will run LLM prompt generation');
-  if (mode === 'camera') {
+  // rerun_v1: a saved gallery prompt sent back as-is — skip the prompt writer, just re-roll the render.
+  // Saved prompts may carry last render's identity header; peel it off so the renderer adds a fresh one.
+  const rerunRaw = req.body.rawPrompt === true && typeof customPrompt === 'string' && customPrompt.trim().length > 0;
+  if (rerunRaw) {
+    let raw = customPrompt.trim();
+    const marker = 'Create the following scene: ';
+    if (raw.indexOf(marker) > -1) raw = raw.slice(raw.indexOf(marker) + marker.length);
+    else if (/^Reference images? \d/.test(raw) && raw.indexOf('\n') > -1) raw = raw.slice(raw.indexOf('\n') + 1);
+    imagePrompt = sanitizeFluxPrompt(raw.trim());
+    console.log('🔁 rerun_v1: saved prompt used verbatim, prompt writer skipped');
+  }
+
+  if (rerunRaw) {
+    /* rerun_v1: imagePrompt is already final — nothing to write */
+  } else if (mode === 'camera') {
     // === CAMERA MODE: companion photographs the user ===
     try {
       const persona = getPersona();
