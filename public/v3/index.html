@@ -7097,6 +7097,8 @@ function lbBuild(){
     '<div class="lb-foot">'+
       '<div class="prompt" id="lb-prompt"></div>'+
       '<button class="btn ghost tiny" id="lb-chat">Send to chat</button>'+
+      '<button class="btn ghost tiny" id="lb-rerun" title="Same prompt, new roll">Rerun</button>'+
+      '<button class="btn ghost tiny" id="lb-copy" title="Copy the prompt to use on another companion">Copy prompt</button>'+
       '<button class="btn ghost tiny" id="lb-video">Make a video</button>'+
       '<button class="btn ghost tiny" id="lb-priv">Make private</button>'+
       '<a class="btn ghost tiny" id="lb-open" target="_blank" rel="noopener">Open original</a>'+
@@ -7127,6 +7129,36 @@ function lbBuild(){
     G.quiet(G.jsend('POST','/api/history/'+encodeURIComponent(c.name)+'/messages',{messages:[row]}),null)
       .then(function(){ if(G.loadThread) G.loadThread(); });
     closeLightbox(); G.show('chat');
+  });
+  /* rerun_v1: strip the renderer's identity header so what you copy/rerun is just the scene */
+  function lbScenePrompt(f){
+    var p=String((f&&f.prompt)||''), m='Create the following scene: ', i=p.indexOf(m);
+    if(i>-1) p=p.slice(i+m.length);
+    else if(/^Reference images? \d/.test(p)&&p.indexOf('\n')>-1) p=p.slice(p.indexOf('\n')+1);
+    return p.trim();
+  }
+  $('#lb-copy',lbEl).addEventListener('click',function(){
+    var f=LB.files[LB.i]; var p=lbScenePrompt(f);
+    if(!p){ G.toast('No prompt saved with this photo.'); return; }
+    var done=function(){ G.ok('Prompt copied — paste it into another companion\'s scene box.'); };
+    var fallback=function(){ window.prompt('Copy the prompt:',p); };
+    if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(p).then(done,fallback);
+    else fallback();
+  });
+  $('#lb-rerun',lbEl).addEventListener('click',function(){
+    var f=LB.files[LB.i], c=G.cur(); if(!f||!c) return;
+    if(!f.prompt){ G.toast('No prompt saved with this photo — nothing to rerun.'); return; }
+    if(f.source==='group-selfie'){ G.toast('Rerun is for solo photos — copy the prompt and use the group tools instead.'); return; }
+    var b=this; b.disabled=true; b.textContent='Rerunning…';
+    G.jsend('POST','/api/generate-image',{companion:c.name,prompt:f.prompt,rawPrompt:true}).then(function(r){
+      b.disabled=false; b.textContent='Rerun';
+      if(!r||!r.imageUrl){ G.toast((r&&r.error)||'Generation failed: no image URL returned'); return; }
+      var fn=decodeURIComponent(String(r.imageUrl).split('/').pop()||'');
+      var nf={filename:fn,url:r.imageUrl,tags:[],createdAt:new Date().toISOString(),source:f.source||'selfie',prompt:f.prompt};
+      LB.files.splice(LB.i+1,0,nf); LB.i=LB.i+1; lbShow();
+      if(LB.onChange) LB.onChange();
+      G.ok('New roll landed in the gallery.');
+    }).catch(function(e){ b.disabled=false; b.textContent='Rerun'; G.toast('Rerun failed: '+G.errMsg(e)); });
   });
   $('#lb-video',lbEl).addEventListener('click',function(){
     var f=LB.files[LB.i], c=G.cur(); if(!f||!c) return;
@@ -7171,6 +7203,8 @@ function lbShow(){
   $('#lb-prompt',lbEl).textContent=f.prompt||'';
   $('#lb-open',lbEl).href=f.url;
   $('#lb-video',lbEl).style.display=isVideo(f)?'none':'';
+  $('#lb-rerun',lbEl).style.display=(f.prompt&&!isVideo(f)&&f.source!=='group-selfie')?'':'none';
+  $('#lb-copy',lbEl).style.display=f.prompt?'':'none';
   $('#lb-priv',lbEl).textContent=isPrivate(f)?'Make public':'Make private';
   $('#lb-priv',lbEl).style.display=f.filename?'':'none';
   $('#lb-prev',lbEl).style.visibility=LB.i>0?'visible':'hidden';

@@ -8633,6 +8633,24 @@ app.post('/api/generate-image', async (req, res) => {
   } = req.body;
   const settings = getSettings();
 
+  // rerun_v1: a saved couple/group prompt carries its own cast in its reference header
+  // ("Reference image 1 = Evan. Reference images 2–3 = Megan (…)"). Rebuild the multi request from it.
+  if (req.body.rawPrompt === true && typeof customPrompt === 'string' && /^Reference images? \d/.test(customPrompt.trim())) {
+    const header = customPrompt.trim().split('\n')[0];
+    const personaName = String(getPersona().name || '').trim().toLowerCase();
+    const cast = []; let userInCast = false;
+    for (const m of header.matchAll(/Reference images? [\d–-]+ = ([^.(\n]+?)\s*[.(]/g)) {
+      const who = m[1].trim();
+      if (personaName && who.toLowerCase() === personaName) { userInCast = true; continue; }
+      const safe = who.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      if (fs.existsSync(path.join(COMPANION_DIR, `${safe}.json`))) cast.push(who);
+    }
+    if (cast.length + (userInCast ? 1 : 0) >= 2) {
+      mode = 'multi'; multiCompanions = cast; includeUser = userInCast; groupId = undefined;
+      console.log(`🔁 rerun_v1: group rerun cast [${cast.join(', ')}]${userInCast ? ' + user' : ''}`);
+    }
+  }
+
   // Trust boundaries: in group selfie mode, never allow names outside the actual group.
   if (mode === 'multi') {
     const requested = Array.isArray(multiCompanions)
@@ -8977,7 +8995,10 @@ app.post('/api/generate-image', async (req, res) => {
         // Build prompt (reuse existing LLM prompt generation or custom prompt)
         const refCounts = loadedFaces.map(f => f.count);
         let nbPrompt;
-        if (customPrompt) {
+        if (rerunRaw) {
+          nbPrompt = imagePrompt; // rerun_v1: saved scene, header already peeled — no writer
+          console.log('🔁 rerun_v1: group prompt used verbatim, prompt writer skipped');
+        } else if (customPrompt) {
           nbPrompt = customPrompt;
         } else {
           const appearanceList = [];
@@ -9381,7 +9402,10 @@ app.post('/api/generate-image', async (req, res) => {
         // Build an LLM-generated prompt grounded in the conversation
         const refCounts = loadedFaces.map(f => f.count);
         let nbPrompt;
-        if (customPrompt) {
+        if (rerunRaw) {
+          nbPrompt = imagePrompt; // rerun_v1: saved scene, header already peeled — no writer
+          console.log('🔁 rerun_v1: group prompt used verbatim, prompt writer skipped');
+        } else if (customPrompt) {
           nbPrompt = customPrompt;
         } else {
           const appearanceList = [];
