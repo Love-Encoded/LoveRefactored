@@ -7148,7 +7148,6 @@ function lbBuild(){
   $('#lb-rerun',lbEl).addEventListener('click',function(){
     var f=LB.files[LB.i], c=G.cur(); if(!f||!c) return;
     if(!f.prompt){ G.toast('No prompt saved with this photo — nothing to rerun.'); return; }
-    if(f.source==='group-selfie'){ G.toast('Rerun is for solo photos — copy the prompt and use the group tools instead.'); return; }
     var b=this; b.disabled=true; b.textContent='Rerunning…';
     G.jsend('POST','/api/generate-image',{companion:c.name,prompt:f.prompt,rawPrompt:true}).then(function(r){
       b.disabled=false; b.textContent='Rerun';
@@ -7203,7 +7202,7 @@ function lbShow(){
   $('#lb-prompt',lbEl).textContent=f.prompt||'';
   $('#lb-open',lbEl).href=f.url;
   $('#lb-video',lbEl).style.display=isVideo(f)?'none':'';
-  $('#lb-rerun',lbEl).style.display=(f.prompt&&!isVideo(f)&&f.source!=='group-selfie')?'':'none';
+  $('#lb-rerun',lbEl).style.display=(f.prompt&&!isVideo(f))?'':'none';
   $('#lb-copy',lbEl).style.display=f.prompt?'':'none';
   $('#lb-priv',lbEl).textContent=isPrivate(f)?'Make public':'Make private';
   $('#lb-priv',lbEl).style.display=f.filename?'':'none';
