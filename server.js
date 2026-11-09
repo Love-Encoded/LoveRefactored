@@ -2044,11 +2044,28 @@ function setRefImages(obj, list) {
   return clean;
 }
 
+/** Per-companion user face refs (card.userPersonaRefs) — override of the global persona face photos. */
+function userPersonaRefPaths(card) {
+  if (!card || !Array.isArray(card.userPersonaRefs)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const r of card.userPersonaRefs) {
+    const f = path.basename(String(r || '').trim());
+    if (!f || seen.has(f)) continue;
+    seen.add(f);
+    const p = path.join(DATA_DIR, 'reference_images', f);
+    if (fs.existsSync(p)) out.push(p);
+  }
+  return out.slice(0, MAX_FACE_REFS);
+}
+
 /**
  * Absolute path to the user's face for multi-person fal generation (couple / group + include user).
  * Prefers Settings → Reference Face Photo (reference_images); falls back to persona Avatar upload (_persona in avatars).
  */
-function resolvePersonaFacePath() {
+function resolvePersonaFacePath(card) {
+  const own = userPersonaRefPaths(card);
+  if (own.length) return own[0];
   const persona = getPersona();
   if (persona.falReferenceImage) {
     const refPath = path.join(DATA_DIR, 'reference_images', persona.falReferenceImage);
@@ -2069,7 +2086,9 @@ function refImageAbsPaths(obj) {
 }
 
 /** Every persona reference photo, or the persona avatar when no reference photos are on file. */
-function resolvePersonaFacePaths() {
+function resolvePersonaFacePaths(card) {
+  const own = userPersonaRefPaths(card);
+  if (own.length) return own;
   const refs = refImageAbsPaths(getPersona());
   if (refs.length) return refs;
   const avatar = resolvePersonaFacePath();
@@ -2110,7 +2129,7 @@ function collectGenerationFaces(companionNames, includeUser) {
   }
   if (includeUser) {
     const persona = getPersona();
-    const paths = resolvePersonaFacePaths();
+    const paths = resolvePersonaFacePaths(getCompanion((companionNames || [])[0]));
     if (paths.length) raw.push({ name: persona.name || 'User', paths, persona: true });
   }
   return budgetFaceSets(raw);
@@ -2210,7 +2229,7 @@ function coupleShotAvailable(card) {
     if (!card || card.photoEnabled === false) return false;
     const hasCompanionRef = !!(card.falReferenceImage || card.referenceImage);
     if (!hasCompanionRef) return false;
-    return !!resolvePersonaFacePath();
+    return !!resolvePersonaFacePath(card);
   } catch (e) { return false; }
 }
 
@@ -6511,7 +6530,7 @@ app.post('/chat', async (req, res) => {
     let cameraUrl = null;
     if (pendingImageTags.camera !== null) {
       const persona = getPersona();
-      const facePath = resolvePersonaFacePath();
+      const facePath = resolvePersonaFacePath(getCompanion(companion));
       if (!facePath) {
         console.log(`📷 Skipping [camera:] for ${companion}: no user face reference found`);
       } else if (!persona.appearance) {
@@ -8612,6 +8631,75 @@ app.post('/api/remove-reference-image', express.json(), (req, res) => {
   }
 });
 
+// ── Per-companion user persona photos (card.userPersonaRefs) ──
+// Stored in data/reference_images/ with a _userref_ name so the existing GET /api/reference-image/ serves them.
+function userPersonaRefList(card) {
+  return userPersonaRefPaths(card).map(p => path.basename(p));
+}
+app.post('/api/companions/:name/user-persona-ref', (req, res) => {
+  refImageUpload.single('image')(req, res, async (uploadErr) => {
+    if (uploadErr) {
+      if (uploadErr instanceof multer.MulterError && uploadErr.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ error: 'The image you are trying to upload is too large' });
+      }
+      return res.status(400).json({ error: uploadErr.message || 'Upload failed' });
+    }
+    try {
+      if (!req.file) return res.status(400).json({ error: 'No image file received' });
+      const companionName = req.params.name;
+      const card = getCompanion(companionName);
+      if (!card) return res.status(404).json({ error: 'Companion not found' });
+      const existing = userPersonaRefList(card);
+      if (existing.length >= MAX_FACE_REFS) {
+        return res.status(409).json({ error: `Up to ${MAX_FACE_REFS} photos. Remove one first.`, max: MAX_FACE_REFS, files: existing });
+      }
+      const safeName = companionName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      let outBuffer = req.file.buffer;
+      let ext = req.file.originalname.match(/\.(jpe?g|png|webp|gif)$/i)?.[0] || '.png';
+      if (sharp) {
+        try {
+          const meta = await sharp(req.file.buffer).metadata();
+          if ((meta.width || 0) > 2048 || (meta.height || 0) > 2048 || req.file.buffer.length > 4 * 1024 * 1024) {
+            outBuffer = await sharp(req.file.buffer, { failOnError: false })
+              .resize(2048, 2048, { fit: 'inside', withoutEnlargement: true })
+              .jpeg({ quality: 90, mozjpeg: true })
+              .toBuffer();
+            ext = '.jpg';
+          }
+        } catch (e) { outBuffer = req.file.buffer; }
+      }
+      const refDir = path.join(DATA_DIR, 'reference_images');
+      if (!fs.existsSync(refDir)) fs.mkdirSync(refDir, { recursive: true });
+      const filename = `${safeName}_userref_${Date.now().toString(36)}${ext}`;
+      fs.writeFileSync(path.join(refDir, filename), outBuffer);
+      card.userPersonaRefs = [...existing, filename];
+      saveCompanion(companionName, card);
+      console.log(`📸 Saved user persona ref for ${companionName}: ${filename} — ${card.userPersonaRefs.length}/${MAX_FACE_REFS}`);
+      return res.json({ success: true, filename, files: card.userPersonaRefs, max: MAX_FACE_REFS });
+    } catch (e) {
+      console.error('User persona ref upload error:', e.message);
+      return res.status(500).json({ error: `Upload failed: ${e.message}` });
+    }
+  });
+});
+app.delete('/api/companions/:name/user-persona-ref/:filename', (req, res) => {
+  try {
+    const companionName = req.params.name;
+    const filename = path.basename(decodeURIComponent(req.params.filename || ''));
+    const card = getCompanion(companionName);
+    if (!card) return res.status(404).json({ error: 'Companion not found' });
+    if (!filename) return res.status(400).json({ error: 'filename required' });
+    const list = userPersonaRefList(card).filter(f => f !== filename);
+    card.userPersonaRefs = list;
+    saveCompanion(companionName, card);
+    try { fs.unlinkSync(path.join(DATA_DIR, 'reference_images', filename)); } catch (e) { /* already gone */ }
+    console.log(`🗑️ Removed user persona ref ${filename} from ${companionName} (${list.length} left)`);
+    return res.json({ success: true, files: list, max: MAX_FACE_REFS });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 // Serve reference images
 app.get('/api/reference-image/:filename', (req, res) => {
   const safeName = path.basename(decodeURIComponent(req.params.filename));
@@ -8947,7 +9035,7 @@ app.post('/api/generate-image', async (req, res) => {
 
   // Camera mode: resolve user's face reference for downstream providers
   const cameraMode = mode === 'camera';
-  const cameraRefPath = cameraMode ? resolvePersonaFacePath() : null;
+  const cameraRefPath = cameraMode ? resolvePersonaFacePath(card) : null;
   const cameraSubjectName = cameraMode ? (getPersona().name || 'User') : null;
   if (cameraMode && !cameraRefPath) {
     return res.json({ error: 'Camera mode requires a user face reference image. Upload one in Persona settings.' });
@@ -9187,7 +9275,7 @@ app.post('/api/generate-image', async (req, res) => {
       let repOutput;
 
       if (useNanoBananaSoloRef) {
-        const facePaths = cameraMode ? resolvePersonaFacePaths() : companionRefPaths;
+        const facePaths = cameraMode ? resolvePersonaFacePaths(card) : companionRefPaths;
         const refBuffers = facePaths.filter(p => fs.existsSync(p)).map(p => fs.readFileSync(p));
         if (!refBuffers.length) {
           throw new Error(`Reference image not found: ${cameraMode ? 'persona face reference' : (card.falReferenceImage || companionName)}`);
@@ -9625,7 +9713,7 @@ app.post('/api/generate-image', async (req, res) => {
       if (cameraMode) { useLora = false; useNanoBananaSoloRef = true; }
 
       if (useNanoBananaSoloRef) {
-        const facePaths = (cameraMode ? resolvePersonaFacePaths() : companionRefPaths).filter(p => fs.existsSync(p));
+        const facePaths = (cameraMode ? resolvePersonaFacePaths(card) : companionRefPaths).filter(p => fs.existsSync(p));
         if (!facePaths.length) {
           return res.json({ error: `Reference image not found: ${cameraMode ? 'persona face reference' : (card.falReferenceImage || companionName)}` });
         }
