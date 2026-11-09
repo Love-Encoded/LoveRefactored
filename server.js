@@ -8723,9 +8723,15 @@ app.post('/api/generate-image', async (req, res) => {
 
   // rerun_v1: a saved couple/group prompt carries its own cast in its reference header
   // ("Reference image 1 = Evan. Reference images 2–3 = Megan (…)"). Rebuild the multi request from it.
-  if (req.body.rawPrompt === true && typeof customPrompt === 'string' && /^Reference images? \d/.test(customPrompt.trim())) {
+  if (req.body.rawPrompt === true && typeof customPrompt === 'string' && /^(Reference images? \d|Using the uploaded reference image)/.test(customPrompt.trim())) {
     const header = customPrompt.trim().split('\n')[0];
     const personaName = String(getPersona().name || '').trim().toLowerCase();
+    // camera photo (the companion photographed the user): a solo header naming the user → rerun in camera mode
+    const soloWho = (header.match(/^Reference images? [\d–-]+ are all the same one person, ([^,]+),/) || header.match(/Reference image 1: ([^.]+)\./) || [])[1];
+    if (soloWho && personaName && soloWho.trim().toLowerCase() === personaName) {
+      mode = 'camera';
+      console.log('🔁 rerun_v1: camera rerun (photo of the user)');
+    }
     const cast = []; let userInCast = false;
     for (const m of header.matchAll(/Reference images? [\d–-]+ = ([^.(\n]+?)\s*[.(]/g)) {
       const who = m[1].trim();
