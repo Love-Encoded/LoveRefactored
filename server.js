@@ -2059,6 +2059,15 @@ function userPersonaRefPaths(card) {
   return out.slice(0, MAX_FACE_REFS);
 }
 
+// user_look_v1: how the user looks to THIS companion's camera. card.userPersonaAppearance (images only, never sent
+// to the model) beats the global persona's appearance — the words now follow the photos (card.userPersonaRefs).
+function userAppearanceFor(card, persona) {
+  const own = card ? String(card.userPersonaAppearance || '').trim() : '';
+  if (own) return own;
+  const p = persona || getPersona();
+  return String(p.appearance || p.backstory || '').trim();
+}
+
 /**
  * Absolute path to the user's face for multi-person fal generation (couple / group + include user).
  * Prefers Settings → Reference Face Photo (reference_images); falls back to persona Avatar upload (_persona in avatars).
@@ -2129,8 +2138,9 @@ function collectGenerationFaces(companionNames, includeUser) {
   }
   if (includeUser) {
     const persona = getPersona();
-    const paths = resolvePersonaFacePaths(getCompanion((companionNames || [])[0]));
-    if (paths.length) raw.push({ name: persona.name || 'User', paths, persona: true });
+    const lookCard = getCompanion((companionNames || [])[0]);
+    const paths = resolvePersonaFacePaths(lookCard);
+    if (paths.length) raw.push({ name: persona.name || 'User', paths, persona: true, lookCard });
   }
   return budgetFaceSets(raw);
 }
@@ -2139,7 +2149,7 @@ function appearanceForFace(face) {
   if (face.persona) {
     const persona = getPersona();
     return {
-      line: `${face.name}: ${persona.appearance || persona.backstory || '(no description)'}`,
+      line: `${face.name}: ${userAppearanceFor(face.lookCard, persona) || '(no description)'}`,
       pronouns: personaPronouns(persona)
     };
   }
@@ -6533,7 +6543,7 @@ app.post('/chat', async (req, res) => {
       const facePath = resolvePersonaFacePath(getCompanion(companion));
       if (!facePath) {
         console.log(`📷 Skipping [camera:] for ${companion}: no user face reference found`);
-      } else if (!persona.appearance) {
+      } else if (!userAppearanceFor(getCompanion(companion), persona)) {
         console.log(`📷 Skipping [camera:] for ${companion}: no user appearance description`);
       } else {
         const today = new Date().toISOString().split('T')[0];
@@ -8926,7 +8936,7 @@ app.post('/api/generate-image', async (req, res) => {
         companionName,
         companionEye: cameraEyeMatch ? cameraEyeMatch[1].trim() : '',
         userName: persona.name,
-        userAppearance: persona.appearance || persona.backstory || '',
+        userAppearance: userAppearanceFor(cameraCard, persona),
         recentMessages,
         locationAnchor,
         sceneHint
@@ -8947,7 +8957,7 @@ app.post('/api/generate-image', async (req, res) => {
       }
       if (isRepetitiveGarbage(generated)) {
         console.log('🚨 Camera prompt still garbage after retry, using appearance fallback');
-        generated = persona.appearance || '';
+        generated = userAppearanceFor(cameraCard, persona);
       }
       imagePrompt = sanitizeFluxPrompt((generated || '').trim());
       console.log('📷 Generated camera prompt:', imagePrompt);
