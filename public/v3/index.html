@@ -8270,6 +8270,19 @@ function hydrateCard(c){
     ta.dispatchEvent(new Event('input'));
   });
   $$('#cp-profile input[data-prop]').forEach(function(inp){ var v=card[inp.dataset.prop]; inp.value=typeof v==='string'?v:''; });
+  /* user persona override photos — strip under the override textarea */
+  var ulf=$('.lf[data-prop="userPersonaOverride"]');
+  if(ulf){
+    var ustrip=$('.facestrip[data-fs-kind="override"]',ulf);
+    if(!ustrip){
+      var uwrap=document.createElement('div');
+      uwrap.innerHTML='<p class="hint" style="margin-top:var(--s3)">Your face, to THIS companion. These replace your Settings → User Persona photos in their pictures only. Leave empty to use the global photos.</p>'+
+        '<div class="facestrip" data-fs-kind="override"></div><span class="runs" data-fs-status></span>';
+      ulf.appendChild(uwrap);
+      ustrip=$('.facestrip[data-fs-kind="override"]',ulf);
+    }
+    G.paintFaceStrip(ustrip, Array.isArray(card.userPersonaRefs)?card.userPersonaRefs:[], {empty:'No photos yet — using your global face photos.'});
+  }
   LENS={};
   G.quiet(G.jget('/api/companions/'+encodeURIComponent(c.name)+'/memory-lens'), {}).then(function(l){
     if(!G.cur()||G.cur().name!==c.name) return;
@@ -11991,6 +12004,11 @@ function stripStatus(host,msg,bad){
 }
 function stripRepaint(host,kind,files){
   var bust=Date.now();
+  if(kind==='override'){
+    var oc=G.cur(); if(oc){ oc.card.userPersonaRefs=files.slice(); }
+    G.paintFaceStrip(host, files, {bust:bust, empty:'No photos yet — using your global face photos.'});
+    return;
+  }
   if(kind==='persona'){
     var pe=G.persona(); if(pe){ pe.falReferenceImages=files.slice(); pe.falReferenceImage=files[0]||''; }
     G.paintFaceStrip(host, files, {bust:bust});
@@ -12005,13 +12023,16 @@ document.addEventListener('click',function(e){
   if(!add&&!del) return;
   var host=(add||del).closest('.facestrip'); if(!host) return;
   var kind=host.dataset.fsKind||'companion'; if(kind==='onboard'||kind==='altform') return; /* onboarding and the alternate form own their own strips */
-  var c=kind==='companion'?G.cur():null; if(kind==='companion'&&!c) return;
+  var needCard=(kind==='companion'||kind==='override');
+  var c=needCard?G.cur():null; if(needCard&&!c) return;
   if(add){
     if(add.disabled) return;
     pickFile('image/*').then(function(f){
       if(!f) return;
       stripStatus(host,'uploading…');
-      var p = kind==='persona' ? upload('/api/persona/reference-image','image',f) : upload('/api/upload-reference-image','image',f,{companion:c.name});
+      var p = kind==='persona' ? upload('/api/persona/reference-image','image',f)
+            : kind==='override' ? upload('/api/companions/'+encodeURIComponent(c.name)+'/user-persona-ref','image',f)
+            : upload('/api/upload-reference-image','image',f,{companion:c.name});
       p.then(function(r){
         var files = Array.isArray(r.files) ? r.files : (r.filename?[r.filename]:[]);
         stripRepaint(host,kind,files); stripStatus(host,'saved');
@@ -12024,6 +12045,7 @@ document.addEventListener('click',function(e){
     stripStatus(host,'removing…');
     var p = kind==='persona'
       ? G.jsend('DELETE','/api/persona/reference-image/'+encodeURIComponent(fname))
+      : kind==='override' ? G.jsend('DELETE','/api/companions/'+encodeURIComponent(c.name)+'/user-persona-ref/'+encodeURIComponent(fname))
       : G.jsend('POST','/api/remove-reference-image',{companion:c.name,filename:fname});
     p.then(function(r){ stripRepaint(host,kind,Array.isArray(r.files)?r.files:[]); stripStatus(host,'removed'); })
      .catch(function(err){ stripStatus(host,G.errMsg(err),true); G.fail('Could not remove the photo',err); });
