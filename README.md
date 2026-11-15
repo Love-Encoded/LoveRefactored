@@ -303,10 +303,11 @@ A standalone full-page reader of the same APIs lives at **`/archive`** (`public/
 
 Cross-instance rooms over the network (**Socket.IO** on `/parlor-io`).
 
-- **Create:** room name, required **join secret** (hosts store a SHA-256 hash; guests must send the same phrase), who you're bringing, per-companion **talkativeness** (how likely they answer *another companion*).
-- **Join:** room name + secret + your roster.
-- An LLM router picks **1–5** companions per human message. Typing and “companion thinking” signals. Optional shared-memory flush when leaving.
-- REST under **`/api/parlors`**. Origins allowlisted via **`PARLOR_ALLOWED_ORIGINS`**.
+- **Create:** room name, required **join secret** (hosts store a SHA-256 hash; guests must send the same phrase), who you're bringing, per-companion **talkativeness** (how likely they speak up when a person in the room says something; at most two of yours answer any one line). The room opens with its **Invite** panel: the room code, your address, and a place to list a guest's web address.
+- **Join:** host address + room code + secret + your roster. A guest keeps knocking until the host opens the room.
+- Each house answers for its own companions: an LLM router picks who speaks per human message. Typing and “companion thinking” signals.
+- **Memory:** nothing is written while the room is open. Leaving offers **Leave and remember** (the visit is saved once) or **Leave, don't remember**. A room with shared memory off never saves.
+- REST under **`/api/parlors`**. The socket accepts this house's own page, localhost, **`PARLOR_ALLOWED_ORIGINS`**, and any guest address the host added under Invite.
 
 ### Creative Studio
 
@@ -873,7 +874,7 @@ On a VPS, only **3000** should be reachable from the internet. Tanevan, Whisper,
 - **Lost messages on restart** — wait a few seconds after send so SQLite can flush.
 - **JSON history upgrade** — `npm run migrate-chat` once, confirm the UI, then delete `data/chat_history/`.
 - **Public deploy without auth** — copy `auth.example.js`, create an admin, restart.
-- **Parlor** — both instances must reach `/parlor-io`; set **`PARLOR_ALLOWED_ORIGINS`** to the exact guest-visible origin(s).
+- **Parlor** — the guest's browser must reach the host's `/parlor-io`. If the guest's house lives at a web address, the host adds it under the room's **Invite** panel (or in **`PARLOR_ALLOWED_ORIGINS`**).
 
 `npm run check` syntax-checks `server.js`, `auth.example.js`, `scripts/auth-users.js`, `db/*.js`, `routes/*.js`, `lib/*.js`, the migrate script, `lib/lr_settings.py`, and key Python entrypoints (Tanevan + `voice/` servers including `fish_asr_proxy.py`).
 

@@ -101,8 +101,39 @@ function registerParlorRoutes(app, deps) {
       if (st === 'human') {
         return { sender: 'user', text: m.text, humanLabel: m.displayName || 'User' };
       }
-      return { sender: m.sender, text: m.text };
+      // parlor_remote_lines_v1: `remote` is set by this house's own screen on every
+      // line that arrived from the other house. A visiting companion can share a
+      // name with one of ours — only a line that is NOT remote is ever "ours".
+      return { sender: m.sender, text: m.text, remote: m.remote === true };
     });
+  }
+
+  // A visiting companion with the same name as one of ours gets told apart in
+  // prompts and in memory, so nobody is handed someone else's words as their own.
+  function parlorSpeakerLabel(name, isRemote, myCompanions) {
+    const n = String(name || 'Unknown');
+    return isRemote && (myCompanions || []).includes(n) ? `${n} (from the other house)` : n;
+  }
+
+  // parlor_guest_addresses_v1: the host can list the web address a guest's house
+  // lives at (their browser's address bar). The Parlor socket only accepts
+  // connections from this house, localhost, PARLOR_ALLOWED_ORIGINS, and these.
+  // A bare domain is accepted as both https:// and http://.
+  function normalizeParlorOrigins(list) {
+    const out = [];
+    for (const raw of Array.isArray(list) ? list : []) {
+      const text = String(raw || '').trim();
+      if (!text) continue;
+      const tries = /^https?:\/\//i.test(text) ? [text] : [`https://${text}`, `http://${text}`];
+      for (const t of tries) {
+        try {
+          const origin = new URL(t).origin;
+          if (origin && origin !== 'null' && !out.includes(origin)) out.push(origin);
+        } catch { /* not an address — skip it */ }
+      }
+      if (out.length >= 40) break;
+    }
+    return out;
   }
 
   // === PARLOR API ROUTES (register /join before /:id) ===
@@ -203,6 +234,9 @@ function registerParlorRoutes(app, deps) {
     for (const key of allowed) {
       if (req.body[key] !== undefined) parlor[key] = req.body[key];
     }
+    if (req.body.guestOrigins !== undefined) {
+      parlor.guestOrigins = normalizeParlorOrigins(req.body.guestOrigins);
+    }
     if (req.body.joinSecret !== undefined) {
       const joinSecretNorm = normalizeParlorJoinSecret(req.body.joinSecret);
       if (!joinSecretNorm) {
@@ -244,7 +278,15 @@ function registerParlorRoutes(app, deps) {
   app.post('/api/parlors/:id/history', parlorHistoryHttpLimiter, (req, res) => {
     if (!isSafeId(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
     const filePath = path.join(HISTORY_DIR, `parlor_${req.params.id}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(req.body.history || [], null, 2));
+    const list = Array.isArray(req.body.history) ? req.body.history : [];
+    fs.writeFileSync(filePath, JSON.stringify(list, null, 2));
+    // parlor_memory_marker_v1: a log shorter than what was already saved to memory
+    // means the log was cleared — start counting from the top again.
+    const parlor = getParlor(req.params.id);
+    if (parlor && (Number(parlor.memoryFlushedCount) || 0) > list.length) {
+      parlor.memoryFlushedCount = 0;
+      saveParlor(parlor);
+    }
     res.json({ success: true });
   });
 
@@ -252,6 +294,11 @@ function registerParlorRoutes(app, deps) {
     if (!isSafeId(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
     const filePath = path.join(HISTORY_DIR, `parlor_${req.params.id}.json`);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    const parlor = getParlor(req.params.id);
+    if (parlor && parlor.memoryFlushedCount) {
+      parlor.memoryFlushedCount = 0;
+      saveParlor(parlor);
+    }
     res.json({ success: true });
   });
 
@@ -259,12 +306,30 @@ function registerParlorRoutes(app, deps) {
     const parlor = getParlor(req.params.id);
     if (!parlor) return res.status(404).json({ error: 'Parlor not found' });
 
-    const { history = [] } = req.body;
+    // parlor_memory_marker_v1: this route is the ONE place Parlor lines reach
+    // memory. `memoryFlushedCount` on the room records how much of the log has
+    // already been handled, so leaving twice never saves the same lines twice.
+    // { skip: true } = "leave without remembering": nothing is saved and the
+    // marker still moves, so those lines are not picked up by a later save.
+    const body = req.body || {};
+    const history = (Array.isArray(body.history) ? body.history : []).filter(m => m && typeof m.text === 'string' && m.text.trim());
+    const skip = body.skip === true;
     const settings = getSettings();
     const myCompanions = parlor.myCompanions || [];
+    const alreadyHandled = Math.max(0, Math.min(Number(parlor.memoryFlushedCount) || 0, history.length));
+    const pending = history.slice(alreadyHandled);
+    const markHandled = () => {
+      const fresh = getParlor(parlor.id) || parlor;
+      fresh.memoryFlushedCount = history.length;
+      saveParlor(fresh);
+    };
 
     if (history.length === 0 || myCompanions.length === 0) {
       return res.json({ success: true, flushed: 0, memoriesExtracted: null });
+    }
+    if (skip) {
+      markHandled();
+      return res.json({ success: true, flushed: 0, memoriesExtracted: null, skippedMemory: true, reason: 'left without saving' });
     }
 
     if (parlor.sharedMemory === false) {
@@ -283,30 +348,50 @@ function registerParlorRoutes(app, deps) {
       } catch (e) {
         console.error('Parlor chat log event:', e.message);
       }
+      markHandled();
       return res.json({ success: true, flushed: 0, memoriesExtracted: null, skippedMemory: true });
+    }
+    if (!settings.memory?.enabled) {
+      markHandled();
+      return res.json({ success: true, flushed: 0, memoriesExtracted: null, skippedMemory: true, reason: 'memory is turned off' });
+    }
+    if (pending.length === 0) {
+      return res.json({ success: true, flushed: 0, memoriesExtracted: null, nothingNew: true });
     }
 
     let bufferedCompanions = 0;
+    let memoryFailure = null;
     for (const companionName of myCompanions) {
       try {
-        for (const msg of history) {
+        for (const msg of pending) {
           let st = msg.senderType;
           if (!st) {
             if (msg.sender === 'user' || msg.sender === 'local') st = 'human';
             else st = 'companion';
           }
-          const isOwnCompanionLine = st === 'companion' && msg.sender === companionName;
+          const isRemote = msg.remote === true;
+          const isOwnCompanionLine = st === 'companion' && msg.sender === companionName && !isRemote;
+          let stored;
           if (isOwnCompanionLine) {
-            await bufferToTanevan('assistant', msg.text, settings, companionName, msg.timestamp);
+            stored = await bufferToTanevan('assistant', msg.text, settings, companionName, msg.timestamp);
           } else {
-            const label = msg.displayName || msg.sender || 'Unknown';
-            await bufferToTanevan('user', `[${label}]: ${msg.text}`, settings, companionName, msg.timestamp);
+            const label = st === 'companion'
+              ? parlorSpeakerLabel(msg.sender || msg.displayName, isRemote, myCompanions)
+              : (msg.displayName || msg.sender || 'Unknown');
+            stored = await bufferToTanevan('user', `[${label}]: ${msg.text}`, settings, companionName, msg.timestamp);
           }
+          if (!stored) throw new Error('memory did not accept a line');
         }
         bufferedCompanions++;
       } catch (e) {
         console.error(`Parlor buffer error for ${companionName}:`, e.message);
+        memoryFailure = `${companionName}: ${e.message}`;
+        break;
       }
+    }
+    if (memoryFailure) {
+      // Nothing is marked as saved, so leaving again later will try these lines again.
+      return res.status(502).json({ error: `Memory is not answering, so this session was not saved (${memoryFailure}). Try again once memory is back.` });
     }
 
     let memoriesExtracted = null;
@@ -352,9 +437,10 @@ function registerParlorRoutes(app, deps) {
       }
       memoriesExtracted = totalMemories > 0 ? totalMemories : 0;
     }
+    markHandled();
 
     try {
-      const transcriptPreview = history.slice(0, 8).map(m => {
+      const transcriptPreview = pending.slice(0, 8).map(m => {
         let st = m.senderType;
         if (!st) {
           if (m.sender === 'user' || m.sender === 'local') st = 'human';
@@ -370,7 +456,7 @@ function registerParlorRoutes(app, deps) {
         parlorCode: parlor.code,
         parlorName: parlor.name,
         companions: myCompanions,
-        messageCount: history.length,
+        messageCount: pending.length,
         memoriesExtracted: memoriesExtracted != null ? memoriesExtracted : undefined,
         transcriptPreview: transcriptPreview.slice(0, 500),
         flushedAt: new Date().toISOString()
@@ -388,10 +474,12 @@ function registerParlorRoutes(app, deps) {
 
   // === PARLOR: local companion replies (called when a human speaks in The Parlor) ===
   app.post('/api/parlors/:id/respond', parlorRespondHttpLimiter, async (req, res) => {
-    const { message, senderType, history = [] } = req.body;
+    const { senderType } = req.body || {};
+    const message = typeof (req.body || {}).message === 'string' ? req.body.message : '';
+    const history = (Array.isArray((req.body || {}).history) ? req.body.history : []).filter(m => m && typeof m.text === 'string');
     const parlor = getParlor(req.params.id);
     if (!parlor) return res.status(404).json({ error: 'Parlor not found' });
-    if (senderType !== 'human') return res.json({ responses: [] });
+    if (senderType !== 'human' || !message.trim()) return res.json({ responses: [] });
 
     const settings = getSettings();
     const myCompanions = parlor.myCompanions || [];
@@ -456,13 +544,12 @@ function registerParlorRoutes(app, deps) {
     });
     if (selectedCompanions.length === 0) return res.json({ responses: [] });
 
-    const parlorUserTimestamp = new Date().toISOString();
-    for (const name of myCompanions) {
-      bufferToTanevan('user', message, settings, name, parlorUserTimestamp);
-    }
-
+    // Nothing is written to memory here. Parlor lines reach memory in one place —
+    // /flush, when you leave and choose to remember — so a line is never saved
+    // twice, and "shared memory off" / "leave without saving" mean what they say.
     const runningHistory = parlorHistoryToRunningForLLM(history);
     const responses = [];
+    const errors = [];
 
     for (const companionName of selectedCompanions) {
       if (consecutiveCompanion + responses.length >= maxTurns) break;
@@ -565,11 +652,12 @@ function registerParlorRoutes(app, deps) {
           const label = m.humanLabel || 'User';
           return { role: 'user', content: `[${label}]: ${m.text}` };
         }
-        if (m.sender === companionName) return { role: 'assistant', content: m.text };
+        if (m.sender === companionName && !m.remote) return { role: 'assistant', content: m.text };
+        const speaker = parlorSpeakerLabel(m.sender, m.remote, myCompanions);
         if (isAnthropicProvider) {
-          return { role: 'user', content: `[${m.sender} said]: ${m.text}` };
+          return { role: 'user', content: `[${speaker} said]: ${m.text}` };
         }
-        return { role: 'user', content: `[${m.sender} said]: ${m.text}`, name: String(m.sender).replace(/[^a-zA-Z0-9_-]/g, '_') };
+        return { role: 'user', content: `[${speaker} said]: ${m.text}`, name: String(m.sender).replace(/[^a-zA-Z0-9_-]/g, '_') };
       });
 
       const otherVoices = selectedCompanions.filter(n => n !== companionName);
@@ -594,10 +682,6 @@ function registerParlorRoutes(app, deps) {
 
         runningHistory.push({ sender: companionName, text: reply.trim() });
 
-        if (parlor.sharedMemory !== false) {
-          bufferToTanevan('assistant', reply, settings, companionName, ts);
-        }
-
         const userLabel = getPersona().name?.trim() || 'User';
         const tail = runningHistory.slice(-3).map(m => {
           if (m.sender === 'user') return { sender: 'user', text: m.text };
@@ -613,17 +697,13 @@ function registerParlorRoutes(app, deps) {
         });
       } catch (e) {
         console.error(`Parlor respond error for ${companionName}:`, e.message);
-        responses.push({
-          companion: companionName,
-          text: `⚠️ ${e.message}`,
-          senderType: 'companion',
-          sender: companionName,
-          timestamp: new Date().toISOString()
-        });
+        // Reported beside the replies, never as a line "from" the companion: a line
+        // would be sent to the other house and saved to this companion's memory.
+        errors.push({ companion: companionName, error: e.message });
       }
     }
 
-    res.json({ responses });
+    res.json({ responses, errors });
   });
 }
 

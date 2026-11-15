@@ -1417,6 +1417,40 @@ button.m-stat:hover{background:var(--lamp-hi);border-color:var(--line-lit)}
   font-variant-numeric:tabular-nums}
 .talk-scale{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;
   color:var(--ink-3);margin-top:var(--s2);padding-left:142px}
+/* the room: your rooms on the left, the one you're standing in on the right */
+#pl{flex:1;display:grid;grid-template-columns:230px minmax(0,1fr);min-height:0}
+#pl-left{border-right:1px solid var(--line);background:var(--room);overflow-y:auto;padding:var(--s4)}
+#pl-main{display:flex;flex-direction:column;min-height:0;min-width:0}
+#pl-formwrap{flex:1;overflow-y:auto;min-height:0}
+#pl-room{flex:1;display:flex;flex-direction:column;min-height:0}
+#pl-empty[hidden],#pl-formwrap[hidden],#pl-room[hidden]{display:none}
+.pl-dot{width:7px;height:7px;border-radius:999px;background:var(--ink-3);flex-shrink:0;display:inline-block}
+.pl-dot.connected{background:var(--live)}
+.pl-dot.waiting,.pl-dot.knocking,.pl-dot.connecting{background:var(--warn)}
+.pl-dot.disconnected{background:var(--danger)}
+.pl-head{display:flex;align-items:flex-start;flex-wrap:wrap;gap:var(--s2);padding:var(--s4) var(--s5);border-bottom:1px solid var(--line)}
+.pl-head .t{flex:1 1 220px;min-width:0}
+.pl-head h2{font-size:20px;font-weight:700;color:var(--ink);letter-spacing:-.02em;line-height:1.2;margin:0 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl-acts{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2)}
+.pl-status{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-right:var(--s2)}
+#pl-thread{flex:1;overflow-y:auto;padding:var(--s4) var(--s5);min-height:0}
+#pl-thread .cs-gr{max-width:760px}
+#pl-thread .cs-gr p{font-size:14px;line-height:1.6;color:var(--ink)}
+#pl-thread .cs-gr.sys p{font-size:10px;color:var(--ink-3)}
+#pl-thread .typing{padding:4px 0 8px 0}
+.pl-tag{font-size:9px;letter-spacing:.1em;color:var(--ink-3);border:1px solid var(--line-lit);border-radius:var(--r-full);padding:1px 6px;margin-left:4px}
+.pl-say{display:flex;gap:var(--s2);align-items:flex-end;margin:0 var(--s5) var(--s4);padding:var(--s3);border:1px solid var(--line);border-radius:var(--r-md);background:var(--room)}
+.pl-say .grow{flex:1;min-height:44px;max-height:180px;overflow-y:auto;outline:none;font-size:14px;line-height:1.5;color:var(--ink);padding:10px 6px;white-space:pre-wrap}
+.pl-say .grow:empty::before{content:attr(data-ph);color:var(--ink-3)}
+.pl-code{font-family:var(--mono);font-size:22px;letter-spacing:.3em;color:var(--ink);user-select:all}
+.pl-copyrow{display:flex;align-items:center;gap:var(--s3);flex-wrap:wrap}
+#pl-back{display:none}
+@media (max-width:860px){
+  #pl{grid-template-columns:minmax(0,1fr)}
+  #pl.in #pl-left{display:none}
+  #pl:not(.in) #pl-main{display:none}
+  #pl-back{display:inline-flex}
+}
 
 /* ═══════════ CREATIVE STUDIO ═══════════ */
 .proj-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--s3);
@@ -3915,7 +3949,19 @@ html.kiosk #kiosk-eye.on{background:var(--live);opacity:1;box-shadow:0 0 10px va
     </div>
 
     <!-- ── THE PARLOR ── -->
-    <div class="st-pane" id="p-parlor" style="flex-direction:column;overflow-y:auto">
+    <div class="st-pane" id="p-parlor" style="flex-direction:column">
+      <div id="pl">
+        <aside id="pl-left">
+          <div class="cs-lh"><span class="lbl">Rooms</span><button class="tbtn sm" id="pl-new" title="Open or join a room"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 4v10M4 9h10"/></svg></button></div>
+          <div id="pl-list"></div>
+        </aside>
+        <section id="pl-main">
+          <div class="cs-empty" id="pl-empty">
+            <b>Open a room, or walk into one.</b>
+            <p>A Parlor room is a chat two houses stand in at once — you and your companions on one side, a friend and theirs on the other. Open one and invite them, or join theirs with the address, code and secret they give you. Your companions answer from this house; theirs answer from theirs.</p>
+            <button class="btn primary" id="pl-new2">Open or join a room</button>
+          </div>
+          <div id="pl-formwrap" hidden>
       <div class="parlor">
         <div class="seg2" id="parlor-mode">
           <button aria-pressed="true" data-pm="create">Create room</button>
@@ -3929,7 +3975,7 @@ html.kiosk #kiosk-eye.on{background:var(--live);opacity:1;box-shadow:0 0 10px va
           </div>
           <div class="field">
             <label for="pl-secret">Join secret <span class="inh set">required</span></label>
-            <p class="hint">Anyone with the room name and this phrase can walk in with their own companions. Pick something you'd be comfortable saying out loud to the person you're inviting — it is not a password to your account, and it doesn't need to be.</p>
+            <p class="hint">Anyone with your address, the room code and this phrase can walk in with their own companions. Pick something you'd be comfortable saying out loud to the person you're inviting — it is not a password to your account, and it doesn't need to be.</p>
             <input class="inp" id="pl-secret" placeholder="a phrase, not a password">
           </div>
           <div class="field">
@@ -3938,20 +3984,25 @@ html.kiosk #kiosk-eye.on{background:var(--live);opacity:1;box-shadow:0 0 10px va
           </div>
           <div class="field" id="talkfield">
             <label>Talkativeness</label>
-            <p class="hint">How likely each one is to answer <em>another companion</em> rather than you. It only appears for the ones you're actually bringing.</p>
+            <p class="hint">How likely each one is to speak up when a person in the room says something. At most two of yours answer any one line. It only appears for the ones you're actually bringing.</p>
             <div id="talklist"></div>
-            <div class="talk-scale"><span>only when spoken to</span><span>always chimes in</span></div>
+            <div class="talk-scale"><span>stays quiet</span><span>always chimes in</span></div>
           </div>
         </div>
 
         <div id="parlor-join" class="hidden">
           <div class="field">
-            <label for="pj-name">Room name</label>
-            <input class="inp" id="pj-name" placeholder="the name they gave you">
+            <label for="pj-host">Host address <span class="inh set">required</span></label>
+            <p class="hint">Where the host's house lives — the address they gave you. Something like <code>https://their-house.example</code>, or <code>localhost:8989</code> if you reach them through a tunnel.</p>
+            <input class="inp" id="pj-host" placeholder="https://their-house.example" autocapitalize="off" autocomplete="off" spellcheck="false">
           </div>
           <div class="field">
-            <label for="pj-secret">Join secret</label>
-            <input class="inp" id="pj-secret" placeholder="the phrase they gave you">
+            <label for="pj-code">Room code <span class="inh set">required</span></label>
+            <input class="inp" id="pj-code" placeholder="six characters, like K7M2QX" maxlength="6" autocapitalize="characters" autocomplete="off" spellcheck="false" style="font-family:var(--mono);letter-spacing:.2em;text-transform:uppercase">
+          </div>
+          <div class="field">
+            <label for="pj-secret">Join secret <span class="inh set">required</span></label>
+            <input class="inp" id="pj-secret" placeholder="the phrase they gave you" autocomplete="off">
           </div>
           <div class="field">
             <label>Who you're bringing</label>
@@ -3963,6 +4014,26 @@ html.kiosk #kiosk-eye.on{background:var(--live);opacity:1;box-shadow:0 0 10px va
           <button class="btn ghost" id="pl-cancel">Cancel</button>
           <button class="btn primary" id="pl-go">Open the room</button>
         </div>
+      </div>
+          </div>
+          <div id="pl-room" hidden>
+            <header class="pl-head">
+              <button class="btn ghost tiny" id="pl-back" title="Back to your rooms">‹ Rooms</button>
+              <span class="t"><h2 id="pl-title"></h2><span class="lbl" id="pl-sub"></span></span>
+              <span class="pl-acts">
+                <span class="pl-status" id="pl-status"><i class="pl-dot"></i><span></span></span>
+                <button class="btn ghost tiny" id="pl-invite">Invite</button>
+                <button class="btn ghost tiny" id="pl-leave">Leave</button>
+                <button class="tbtn sm" id="pl-del" title="Delete this room"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 5.5h10M7 5.5V4h4v1.5M5.2 5.5l.6 8.5h6.4l.6-8.5"/></svg></button>
+              </span>
+            </header>
+            <div id="pl-thread"></div>
+            <div class="pl-say">
+              <div class="grow" id="pl-text" contenteditable="true" data-ph="Say something to the room…"></div>
+              <button class="btn primary" id="pl-send">Send</button>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
 
@@ -5513,6 +5584,7 @@ function stage(p){
   if(p==='cal' && LR.drawCal) LR.drawCal();
   if(p==='studio' && LR.drawProjects) LR.drawProjects();
   if(p==='parlor' && LR.drawTalk) LR.drawTalk();
+  if(p==='parlor' && LR.drawParlor) LR.drawParlor();
   if(p==='payload' && LR.drawPayload) LR.drawPayload();
   if(LR.resyncFields) LR.resyncFields();
   if(LR.drawRailCounts) LR.drawRailCounts();
@@ -10650,7 +10722,7 @@ if(pm) pm.addEventListener('click',function(e){
   $('#parlor-join').classList.toggle('hidden',c);
   $('#pl-go').textContent=c?'Open the room':'Knock';
 });
-var plc=$('#pl-cancel'); if(plc) plc.addEventListener('click',function(){ $('#stage').classList.remove('on'); });
+var plc=$('#pl-cancel'); if(plc) plc.addEventListener('click',function(){ if(G.parlorHome) G.parlorHome(); else $('#stage').classList.remove('on'); });
 var plg=$('#pl-go');
 if(plg) plg.addEventListener('click',function(){
   var creating=($('#parlor-create')||{}).classList && !$('#parlor-create').classList.contains('hidden');
@@ -10663,23 +10735,25 @@ if(plg) plg.addEventListener('click',function(){
       name:($('#pl-name')||{}).value||'', companions:mine,
       talkativeness:TALK, joinSecret:secret
     }).then(function(p){
-      G.ok('Room open — code '+p.code+'. Share the code, the secret and your host address.',{ttl:12000});
-      $('#stage').classList.remove('on');
+      if($('#pl-secret')) $('#pl-secret').value=''; if($('#pl-name')) $('#pl-name').value='';
       if(G.drawRailCounts) G.drawRailCounts();
-    }).catch(function(e){ G.fail('Failed to create session',e); });
+      /* the room opens right here, with its invite — code, address, and who to let in */
+      document.dispatchEvent(new CustomEvent('lr:parlor',{detail:{id:p&&p.id, created:true}}));
+    }).catch(function(e){ G.fail('Could not open the room',e); });
   } else {
     var mine2=PICKED.parlorj||[];
+    var jhost=(($('#pj-host')||{}).value||'').trim(), jcode=(($('#pj-code')||{}).value||'').trim().toUpperCase(), jsec=(($('#pj-secret')||{}).value||'').trim();
+    if(!jhost){ G.warn('The host address is required — ask the host where their house lives.'); return; }
+    if(!/^[A-Z0-9]{6}$/.test(jcode)){ G.warn('The room code is six letters and numbers — the host has it under Invite.'); return; }
+    if(!jsec){ G.warn('Join secret is required.'); return; }
     if(!mine2.length){ G.warn('Select at least one companion to bring.'); return; }
     G.jsend('POST','/api/parlors/join',{
-      code:($('#pj-name')||{}).value||'',
-      joinSecret:($('#pj-secret')||{}).value||'',
-      companions:mine2,
-      remoteHost:prompt('Host address (host:port or URL):')||''
-    }).then(function(){
-      G.ok('Knocked. The room opens when the host answers.');
-      $('#stage').classList.remove('on');
+      code:jcode, joinSecret:jsec, companions:mine2, remoteHost:jhost
+    }).then(function(p){
+      if($('#pj-secret')) $('#pj-secret').value='';
       if(G.drawRailCounts) G.drawRailCounts();
-    }).catch(function(e){ G.fail('Parlor connection error',e); });
+      document.dispatchEvent(new CustomEvent('lr:parlor',{detail:{id:p&&p.id}}));
+    }).catch(function(e){ G.fail('Could not join the room',e); });
   }
 });
 
@@ -13303,6 +13377,478 @@ document.addEventListener('click',function(e){
   var all=$$('[data-lb]',host).map(function(x){ return {url:x.dataset.lb, filename:String(x.dataset.lb).split('/').pop()}; });
   var i=$$('[data-lb]',host).indexOf(el);
   G.openLightbox(all, Math.max(0,i), null);
+});
+})();
+</script>
+<script>
+(function(){
+"use strict";
+/* ══════════════ THE PARLOR — live ══════════════
+   A room is {id, code, name, role:'host'|'guest', myCompanions[], remoteHost?, joinSecret? (guest only),
+   sharedMemory, guestOrigins[] (host only)}. Its log is GET/POST :id/history — an array of
+   {text, senderType:'human'|'companion', displayName, sender, timestamp, remote?}.
+
+   Two houses share a room through the HOST's Socket.IO door (/parlor-io, namespace /parlor):
+   the host's page connects to its own house, the guest's page connects to the host's address.
+   Events: parlor:host / parlor:join → parlor:user-joined | parlor:error ; parlor:message ;
+   parlor:typing ; parlor:companion-thinking ; parlor:user-left ; parlor:host-left.
+
+   Each house answers for its own companions: every human line (ours or theirs) goes to
+   POST :id/respond here, and the replies are shown, sent to the room, and logged.
+   `remote:true` is stamped on every line that ARRIVED from the other house — the server uses
+   it to keep a visiting companion apart from one of ours with the same name.
+   Nothing reaches memory until you leave: POST :id/flush {history} remembers the visit,
+   {history, skip:true} leaves without remembering. */
+var $=function(s,r){return (r||document).querySelector(s);};
+var $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s));};
+var G=window.__LR;
+function esc(s){var d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML;}
+function escA(s){ return esc(s).replace(/"/g,'&quot;'); }   /* for value="…" */
+function enc(s){ return encodeURIComponent(s); }
+var API='/api/parlors';
+
+var ROOMS=[], ROOM=null, HIST=[], SOCK=null, STATUS='idle', IOLOAD=null;
+var GUESTS=0, IN=false, PENDING=0, knockT=null, typeT=null, typeEl=null, lastTyped=0, warnedOffline=false, saving=false, saveAgain=false;
+var LABEL={idle:'',connecting:'connecting',waiting:'open · waiting for a guest',knocking:'knocking',connected:'connected',disconnected:'not connected'};
+
+function me(){ return G.myName?G.myName():'You'; }
+function roomName(p){ return (p&&p.name)||('Parlor '+((p&&p.code)||'')); }
+function hueFor(name){ var h=0,s=String(name||''); for(var i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))%360; return 'hsl('+h+' 45% 68%)'; }
+function when(ts){ if(!ts) return ''; var d=G.dayLabel?G.dayLabel(ts):''; var t=G.fmtTime?G.fmtTime(ts):''; return (d&&d!=='Today'?d+' · ':'')+t; }
+/* what a line says: escaped first, then only **bold** and *italics* — lines from the other house are a stranger's text */
+function fmt(text){
+  var s=esc(String(text==null?'':text));
+  s=s.replace(/\*\*([^*\n](?:[^*\n]|\*(?!\*))*?)\*\*/g,'<strong>$1</strong>');
+  s=s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g,'$1<em>$2</em>');
+  return s;
+}
+function who(m){
+  var human=m.senderType==='human';
+  if(human&&!m.remote) return {name:me(), hue:'var(--me)', tag:''};
+  if(human) return {name:m.displayName||'Guest', hue:hueFor(m.displayName), tag:'visiting'};
+  var name=m.sender||m.displayName||'Companion';
+  if(!m.remote){ var c=G.byName?G.byName(name):null; return {name:name, hue:c?c.hue:'var(--ink-3)', tag:''}; }
+  return {name:name, hue:hueFor('~'+name), tag:'visiting'};
+}
+function valid(m){ return !!m && typeof m.text==='string' && !!m.text.trim(); }
+
+/* ── which part of the pane is showing ── */
+function view(v){   /* 'home' | 'form' | 'room' */
+  $('#pl-empty').hidden = v!=='home';
+  $('#pl-formwrap').hidden = v!=='form';
+  $('#pl-room').hidden = v!=='room';
+  $('#pl').classList.toggle('in', v!=='home');
+}
+function mark(){
+  $$('#pl-list .cs-proj').forEach(function(b){
+    var on=!!ROOM&&b.dataset.pid===ROOM.id;
+    b.setAttribute('aria-current',String(on));
+    var d=$('.pl-dot',b); if(d) d.className='pl-dot '+(on?STATUS:'idle');
+  });
+}
+function setStatus(s){
+  STATUS=s;
+  var el=$('#pl-status'); if(el){ $('i',el).className='pl-dot '+s; $('span',el).textContent=LABEL[s]||s; }
+  mark();
+}
+
+/* ── your rooms ── */
+function drawRooms(){
+  var box=$('#pl-list'); if(!box) return Promise.resolve();
+  return G.quiet(G.jget(API), []).then(function(res){
+    ROOMS=Array.isArray(res)?res:[];
+    ROOMS.sort(function(a,b){ return String(b.createdAt||'').localeCompare(String(a.createdAt||'')); });
+    box.innerHTML='';
+    if(!ROOMS.length) box.innerHTML='<p class="emptyish" style="padding:0 4px">No rooms yet.</p>';
+    ROOMS.forEach(function(p){
+      var b=document.createElement('button'); b.className='cs-proj'; b.dataset.pid=p.id;
+      b.innerHTML='<b>'+esc(roomName(p))+'</b><span class="m"><i class="pl-dot idle"></i><span class="lbl">'+esc(p.code||'')+' · '+(p.role==='host'?'yours':'visiting')+'</span></span>';
+      b.addEventListener('click',function(){ open(p.id); });
+      box.appendChild(b);
+    });
+    if(ROOM && !ROOMS.some(function(p){ return p.id===ROOM.id; })) stepOut();
+    mark();
+  });
+}
+/* out of the room on this page: connection closed, thread emptied, back to the list */
+function stepOut(){ disconnect(); ROOM=null; HIST=[]; paintThread(); view('home'); }
+function home(){ view(ROOM?'room':'home'); }
+G.parlorHome=home;
+G.drawParlor=function(){ if($('#pl-formwrap').hidden) home(); drawRooms(); };
+
+function open(id){
+  if(ROOM&&ROOM.id===id){ view('room'); mark(); return Promise.resolve(); }
+  return Promise.all([G.jget(API+'/'+enc(id)), G.quiet(G.jget(API+'/'+enc(id)+'/history'), [])]).then(function(r){
+    var p=r[0]; if(!p||p.error) throw new Error((p&&p.error)||'room not found');
+    disconnect();
+    ROOM=p; HIST=(Array.isArray(r[1])?r[1]:[]).filter(valid); warnedOffline=false;
+    view('room'); paintRoom(); paintThread(); mark(); connect();
+  }).catch(function(e){ G.fail('Could not open the room',e); });
+}
+G.openParlor=open;
+
+/* ── the room ── */
+function paintRoom(){
+  var p=ROOM; if(!p) return;
+  $('#pl-title').textContent=roomName(p);
+  var mine=(p.myCompanions||[]).join(', ');
+  $('#pl-sub').textContent=(p.code||'')+' · '+(p.role==='host'?'your room':'visiting')+(mine?' · with '+mine:'');
+  $('#pl-invite').textContent=p.role==='host'?'Invite':'Connection';
+}
+function line(m){
+  var w=who(m);
+  var d=document.createElement('div'); d.className='cs-gr'; d.style.setProperty('--c',w.hue);
+  d.innerHTML='<span class="lbl">'+esc(w.name)+(w.tag?'<span class="pl-tag">'+w.tag+'</span>':'')+' <span style="color:var(--ink-3);text-transform:none;letter-spacing:0">'+esc(when(m.timestamp))+'</span></span><p>'+fmt(m.text)+'</p>';
+  return d;
+}
+function add(el){
+  var th=$('#pl-thread'); if(!th) return;
+  var q=$('.pl-quiet',th); if(q) q.remove();
+  if(typeEl&&typeEl.parentNode===th) th.insertBefore(el,typeEl); else th.appendChild(el);
+  th.scrollTop=th.scrollHeight;
+}
+function note(text){
+  var d=document.createElement('div'); d.className='cs-gr sys'; d.innerHTML='<p>'+esc(text)+'</p>'; add(d);
+}
+function paintThread(){
+  var th=$('#pl-thread'); if(!th) return;
+  th.innerHTML=''; typeEl=null;
+  if(!HIST.length){ th.innerHTML='<div class="cs-gr sys pl-quiet"><p>nobody has said anything yet</p></div>'; return; }
+  HIST.forEach(function(m){ th.appendChild(line(m)); });
+  th.scrollTop=th.scrollHeight;
+}
+function showTyping(text, ms){
+  hideTyping();
+  var th=$('#pl-thread'); if(!th) return;
+  typeEl=document.createElement('div'); typeEl.className='typing';
+  typeEl.innerHTML='<span class="lbl">'+esc(text)+'</span><span class="dots"><i></i><i></i><i></i></span>';
+  th.appendChild(typeEl); th.scrollTop=th.scrollHeight;
+  typeT=setTimeout(hideTyping, ms||4000);
+}
+function hideTyping(){ clearTimeout(typeT); if(typeEl){ typeEl.remove(); typeEl=null; } }
+
+/* the log is saved whole; saves that pile up collapse into one more */
+function saveHist(){
+  var room=ROOM; if(!room) return;
+  if(saving){ saveAgain=true; return; }
+  saving=true;
+  G.quiet(G.jsend('POST',API+'/'+enc(room.id)+'/history',{history:HIST}), null).then(function(){
+    saving=false;
+    if(saveAgain){ saveAgain=false; if(ROOM===room) saveHist(); }
+  });
+}
+
+/* ── the connection ── */
+function loadIO(){
+  if(window.io) return Promise.resolve();
+  if(IOLOAD) return IOLOAD;
+  IOLOAD=new Promise(function(res,rej){
+    var s=document.createElement('script'); s.src='/parlor-io/socket.io.js';
+    s.onload=function(){ res(); };
+    s.onerror=function(){ IOLOAD=null; rej(new Error('the connection script did not load')); };
+    document.head.appendChild(s);
+  });
+  return IOLOAD;
+}
+/* what the guest typed → an address a browser can open. A bare domain is a hosted house (https);
+   localhost, a bare IP, or anything with a port is a machine or a tunnel (http). */
+function hostUrl(raw){
+  var h=String(raw||'').trim(); if(!h) return '';
+  if(!/^https?:\/\//i.test(h)){
+    var bare=h.split('/')[0];
+    var plain=/^(localhost|\[[0-9a-f:]+\]|\d{1,3}(\.\d{1,3}){3})(:\d+)?$/i.test(bare) || /:\d+$/.test(bare);
+    h=(plain?'http://':'https://')+h;
+  }
+  return h.replace(/\/+$/,'');
+}
+function disconnect(){
+  clearTimeout(knockT); hideTyping(); PENDING=0; GUESTS=0; IN=false;
+  if(SOCK){ var s=SOCK; SOCK=null; try{ s.disconnect(); }catch(e){} }
+  STATUS='idle'; mark();
+}
+function connect(){
+  var room=ROOM; if(!room) return;
+  disconnect(); setStatus('connecting');
+  loadIO().then(function(){
+    if(ROOM!==room) return;
+    var host=room.role==='host', told=false, s;
+    var opts={path:'/parlor-io', transports:['websocket','polling'], tryAllTransports:true};
+    if(host) s=window.io('/parlor',opts);
+    else {
+      var url=hostUrl(room.remoteHost);
+      if(!url){ setStatus('disconnected'); note('This room has no host address yet. Open Connection and add it.'); return; }
+      if(location.protocol==='https:' && /^http:\/\//i.test(url) && !/^http:\/\/(localhost|127\.|\[::1\])/i.test(url)){
+        note('This house is on https and the host address is plain http. Browsers refuse that pairing — the host needs an https address.');
+      }
+      s=window.io(url+'/parlor',opts);
+    }
+    SOCK=s;
+    function knock(){
+      if(SOCK!==s||!s.connected) return;
+      IN=false; setStatus('knocking');
+      s.emit('parlor:join',{code:room.code, parlorId:room.id, displayName:me(), companions:room.myCompanions||[], joinSecret:room.joinSecret||''});
+    }
+    function reknock(ms){ clearTimeout(knockT); knockT=setTimeout(knock, ms||8000); }
+
+    s.on('connect',function(){
+      if(SOCK!==s) return;
+      told=false;
+      if(host){
+        s.emit('parlor:host',{code:room.code, parlorId:room.id, displayName:me(), companions:room.myCompanions||[]});
+        setStatus(GUESTS>0?'connected':'waiting');
+      } else knock();
+    });
+    s.on('parlor:user-joined',function(d){
+      if(SOCK!==s) return; d=d||{};
+      clearTimeout(knockT);
+      var name=String(d.displayName||'Someone').slice(0,80);
+      var comps=(Array.isArray(d.companions)?d.companions:[]).map(function(x){ return String(x).slice(0,60); }).slice(0,12);
+      if(!host&&!IN){ IN=true; setStatus('connected'); note('You\'re in.'); return; }
+      note(name+' walked in'+(comps.length?' with '+comps.join(', '):'')+'.');
+      if(host){ GUESTS++; setStatus('connected'); }
+    });
+    s.on('parlor:user-left',function(d){
+      if(SOCK!==s) return;
+      note(String((d&&d.displayName)||'Someone').slice(0,80)+' left.');
+      if(host){ GUESTS=Math.max(0,GUESTS-1); if(!GUESTS) setStatus('waiting'); }
+    });
+    s.on('parlor:host-left',function(){
+      if(SOCK!==s||host) return;
+      IN=false; setStatus('knocking'); note('The host stepped out. Knocking again until they\'re back.'); reknock();
+    });
+    s.on('parlor:error',function(d){
+      if(SOCK!==s) return;
+      var msg=String((d&&d.message)||'Parlor connection error');
+      if(!host&&/room not found/i.test(msg)){
+        setStatus('knocking');
+        if(!told){ told=true; note('Knocked. The room opens when the host does — trying again every few seconds.'); }
+        reknock(); return;
+      }
+      if(!host&&/invalid join secret/i.test(msg)){
+        setStatus('disconnected'); note('The host did not accept that join secret. Open Connection to fix it.');
+        G.fail('The Parlor',new Error('invalid join secret')); return;
+      }
+      if(/too many/i.test(msg)){ note(msg); if(!host&&!IN) reknock(20000); return; }
+      setStatus('disconnected'); note(msg); G.fail('The Parlor',new Error(msg));
+    });
+    s.on('parlor:message',function(m){ if(SOCK===s) receive(m); });
+    s.on('parlor:typing',function(d){
+      if(SOCK!==s||PENDING) return;
+      if(d&&d.isTyping) showTyping(String(d.displayName||'Someone').slice(0,80)+' is typing', 4000); else hideTyping();
+    });
+    s.on('parlor:companion-thinking',function(d){
+      if(SOCK!==s||PENDING) return;
+      if(d&&d.companionName) showTyping('The other house is thinking', 25000);
+    });
+    s.on('disconnect',function(){ if(SOCK!==s) return; IN=false; clearTimeout(knockT); setStatus('disconnected'); });
+    s.on('connect_error',function(){
+      if(SOCK!==s) return;
+      setStatus('disconnected');
+      if(told) return; told=true;
+      note(host ? 'This house could not open the room\'s connection. It keeps trying.'
+                : 'Could not reach the host at '+hostUrl(room.remoteHost)+'. It keeps trying — check the address under Connection, and if your own house lives at a web address, the host has to add it under Invite.');
+    });
+  }).catch(function(e){ if(ROOM===room){ setStatus('disconnected'); G.fail('Could not connect to the room',e); } });
+}
+
+/* ── lines in, lines out ── */
+function receive(raw){
+  if(!ROOM||!raw||typeof raw!=='object'||typeof raw.text!=='string'||!raw.text.trim()) return;
+  var human = raw.senderType ? raw.senderType==='human' : (raw.sender==='user'||raw.sender==='local');
+  var ts=new Date(raw.timestamp||''); 
+  var m={
+    text:raw.text.slice(0,20000),
+    senderType:human?'human':'companion',
+    displayName:String(raw.displayName||raw.sender||'Guest').slice(0,80),
+    sender:human?'guest':String(raw.sender||raw.displayName||'Companion').slice(0,80),
+    timestamp:isNaN(ts)?new Date().toISOString():ts.toISOString(),
+    remote:true
+  };
+  if(!PENDING) hideTyping();
+  HIST.push(m); add(line(m)); saveHist();
+  if(human) respond(m);
+}
+function send(){
+  if(!ROOM) return;
+  var g=$('#pl-text'); var text=(g.innerText||'').trim(); if(!text) return;
+  g.innerHTML='';
+  var m={text:text, senderType:'human', displayName:me(), sender:'local', timestamp:new Date().toISOString()};
+  HIST.push(m); add(line(m)); saveHist();
+  if(SOCK&&SOCK.connected){
+    SOCK.emit('parlor:typing',{displayName:me(), isTyping:false});
+    SOCK.emit('parlor:message',m);
+  } else if(!warnedOffline){ warnedOffline=true; note('Not connected — only this house can see what you say right now.'); }
+  respond(m);
+}
+/* a person spoke: ask this house's companions whether any of them answer */
+function respond(trigger){
+  var room=ROOM; if(!room||!(room.myCompanions||[]).length) return;
+  if(SOCK&&SOCK.connected) SOCK.emit('parlor:companion-thinking',{companionName:room.myCompanions[0]});
+  PENDING++; showTyping('Your companions are thinking', 120000);
+  G.jsend('POST',API+'/'+enc(room.id)+'/respond',{message:trigger.text, senderName:trigger.displayName, senderType:'human', history:HIST.slice()}).then(function(r){
+    if(ROOM!==room) return;
+    var got=0;
+    ((r&&r.responses)||[]).forEach(function(x){
+      var name=String((x&&(x.companion||x.sender))||''), text=String((x&&x.text)||'').trim();
+      if(!name||!text) return;
+      var m={text:text, sender:name, senderType:'companion', displayName:name, timestamp:x.timestamp||new Date().toISOString()};
+      HIST.push(m); add(line(m)); got++;
+      if(SOCK&&SOCK.connected) SOCK.emit('parlor:message',m);
+    });
+    if(got) saveHist();
+    ((r&&r.errors)||[]).forEach(function(e){ G.fail(((e&&e.companion)||'A companion')+' could not answer', new Error((e&&e.error)||'the model call failed')); });
+  }).catch(function(err){
+    if(ROOM!==room) return;
+    if(err&&err.status===429) note('Too many lines too fast — give the room a moment.');
+    else G.fail('The room could not get a reply',err);
+  }).then(function(){
+    PENDING=Math.max(0,PENDING-1);
+    if(!PENDING) hideTyping();
+  });
+}
+
+/* ── leaving, deleting ── */
+function leave(){
+  if(!ROOM) return;
+  var room=ROOM, btn=$('#pl-leave');
+  function go(skip){
+    btn.disabled=true;
+    if(!skip&&HIST.length) G.toast('Saving this visit to memory…',{kind:'info'});
+    var p=HIST.length ? G.jsend('POST',API+'/'+enc(room.id)+'/flush', skip?{history:HIST, skip:true}:{history:HIST}) : Promise.resolve({});
+    p.then(function(r){
+      btn.disabled=false; r=r||{};
+      if(ROOM===room) stepOut();
+      drawRooms();
+      if(skip) G.ok('Left. Nothing from this visit was saved to memory.');
+      else if(r.skippedMemory) G.ok('Left. Nothing saved — '+(r.reason||'shared memory is off for this room')+'.');
+      else if(r.nothingNew) G.ok('Left. Nothing new to remember since last time.');
+      else if(r.memoriesExtracted>0) G.ok('Left. '+r.memoriesExtracted+' memor'+(r.memoriesExtracted===1?'y':'ies')+' kept from this visit.');
+      else G.ok('Left. This visit is saved for your companions to remember.');
+    }).catch(function(err){
+      btn.disabled=false;
+      G.fail(skip?'Could not leave cleanly — you are still in the room':'This visit was not saved to memory — you are still in the room',err);
+    });
+  }
+  G.modal({title:'Leave "'+roomName(room)+'"?',
+    body:'Your companions can remember this visit, or not. Either way the chat log stays on this house until you delete the room.',
+    actions:[{label:'Leave and remember',primary:true,fn:function(){ go(false); }},{label:'Leave, don\'t remember',fn:function(){ go(true); }},{label:'Stay'}]});
+}
+function del(){
+  if(!ROOM) return; var room=ROOM;
+  G.modal({title:'Delete "'+roomName(room)+'"?',
+    body:'The room and its chat log come off this house. '+(room.role==='host'?'Your guest keeps their own copy but can no longer get in.':'The host keeps their own copy.')+' Nothing more is saved to memory.',
+    kind:'warn',actions:[{label:'Delete',danger:true,fn:function(){
+      G.jsend('DELETE',API+'/'+enc(room.id),{}).then(function(){
+        if(ROOM===room) stepOut();
+        drawRooms(); if(G.drawRailCounts) G.drawRailCounts(); G.ok('Room deleted.');
+      }).catch(function(err){ G.fail('Could not delete the room',err); });
+    }},{label:'Keep it'}]});
+}
+
+/* ── Invite (host) / Connection (guest) ── */
+function shareBase(){
+  var v=''; try{ v=localStorage.getItem('lr-parlor-share-base')||''; }catch(e){}
+  return (v.trim()||location.origin).replace(/\/+$/,'');
+}
+function copy(text, said){
+  function fallback(){
+    var ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select();
+    try{ document.execCommand('copy'); G.ok(said); }catch(e){ G.warn('Could not copy — select it and copy by hand.'); }
+    ta.remove();
+  }
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function(){ G.ok(said); }, fallback);
+  else fallback();
+}
+function panel(){
+  if(!ROOM) return;
+  var room=ROOM, host=room.role==='host';
+  var box=$('#dlgbox'); box.className='dlg form';
+  var addr=shareBase(), local=/^https?:\/\/(localhost|127\.|\[::1\])/i.test(addr);
+  var x='<button class="df-x" data-close aria-label="Close"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m5 5 8 8M13 5l-8 8"/></svg></button>';
+  var body;
+  if(host){
+    body=
+      '<div class="field"><label>Room code</label><div class="pl-copyrow"><span class="pl-code">'+esc(room.code||'')+'</span><button class="btn ghost tiny" id="pl-copy-code">Copy</button><button class="btn ghost tiny" id="pl-copy-invite">Copy the whole invite</button></div></div>'+
+      '<div class="field"><label for="pl-addr">Your address</label><input class="inp" id="pl-addr" value="'+escA(addr)+'" autocapitalize="off" autocomplete="off" spellcheck="false">'+
+        '<p class="hint">'+(local
+          ? 'This is what your guest types as the host address — but <b>this one only works on this computer</b>. A guest in another house needs an address that reaches you: a web address if this house is hosted, or the address a tunnel gives them. Put that here and the invite uses it.'
+          : 'This is what your guest types as the host address. Change it if they reach you some other way.')+'</p></div>'+
+      '<div class="field"><label for="pl-newsecret">Join secret</label><input class="inp" id="pl-newsecret" placeholder="leave empty to keep the one you chose" autocomplete="off">'+
+        '<p class="hint">The phrase you chose when you opened the room. It is not shown again. Lost it? Type a new one here and tell your guest.</p></div>'+
+      '<div class="field"><label for="pl-guests">Guest\'s address <span class="inh">only if their house is on the web</span></label>'+
+        '<textarea class="inp" id="pl-guests" rows="2" style="min-height:64px" autocapitalize="off" spellcheck="false" placeholder="https://their-house.example">'+esc((room.guestOrigins||[]).join('\n'))+'</textarea>'+
+        '<p class="hint">If your guest\'s house lives at a web address — what they see in their own address bar — put it here so their browser is let in. One per line. A guest whose house runs on their own computer needs nothing here.</p></div>';
+  } else {
+    body=
+      '<div class="field"><label for="pl-host2">Host address</label><input class="inp" id="pl-host2" value="'+escA(room.remoteHost||'')+'" autocapitalize="off" autocomplete="off" spellcheck="false">'+
+        '<p class="hint">Where the host\'s house lives — the address they gave you.</p></div>'+
+      '<div class="field"><label>Room code</label><div class="pl-copyrow"><span class="pl-code">'+esc(room.code||'')+'</span></div></div>'+
+      '<div class="field"><label for="pl-secret2">Join secret</label><input class="inp" id="pl-secret2" value="'+escA(room.joinSecret||'')+'" autocomplete="off"></div>';
+  }
+  body+=
+    '<div class="set-row"><span class="t"><b>Companions may remember this room</b><span>On: leaving offers to save the visit to their memory. Off: nothing said here is ever saved.</span></span><button class="toggle" id="pl-mem" aria-pressed="'+(room.sharedMemory!==false)+'"></button></div>'+
+    '<div class="set-row"><span class="t"><b>Clear the chat log</b><span>Empties this room\'s log on this house. The other house keeps its own.</span></span><button class="btn ghost tiny" id="pl-clear">Clear</button></div>';
+  box.innerHTML=
+    '<div class="df-top"><span class="t"><h3>'+(host?'Invite someone to ':'Connection to ')+'"'+esc(roomName(room))+'"</h3><span class="lbl">'+(host?'they need three things: your address, the code, the secret':'where the room is, and how you get in')+'</span></span>'+x+'</div>'+
+    '<div class="df-body">'+body+'</div>'+
+    '<div class="df-foot"><span class="sp"></span><button class="btn ghost" data-close>Close</button><button class="btn primary" id="pl-panel-save">Save</button></div>';
+  $('#scrim').classList.add('on');
+  function shut(){ $('#scrim').classList.remove('on'); box.className='dlg'; box.onclick=null; }
+  function typedAddr(){ return (($('#pl-addr')||{}).value||'').trim().replace(/\/+$/,'')||location.origin; }
+  box.onclick=function(e){
+    if(e.target.closest('#pl-copy-code')){ copy(room.code||'','Room code copied.'); return; }
+    if(e.target.closest('#pl-copy-invite')){
+      copy('Come sit in my Parlor.\nHost address: '+typedAddr()+'\nRoom code: '+(room.code||'')+'\nJoin secret: (I\'ll send you the phrase separately)\nIn your house: The Parlor → Join room.','Invite copied. Send the secret separately.');
+      return;
+    }
+    if(e.target.closest('#pl-clear')){
+      G.modal({title:'Clear this room\'s chat log?',body:'Every line in the log on this house goes. Anything not yet saved to memory is not saved.',kind:'warn',actions:[{label:'Clear',danger:true,fn:function(){
+        G.jsend('DELETE',API+'/'+enc(room.id)+'/history',{}).then(function(){ if(ROOM===room){ HIST=[]; paintThread(); } G.ok('Chat log cleared.'); }).catch(function(err){ G.fail('Could not clear the log',err); });
+      }},{label:'Keep it'}]});
+      return;
+    }
+    if(!e.target.closest('#pl-panel-save')) return;
+    var put={sharedMemory:$('#pl-mem').getAttribute('aria-pressed')==='true'}, redo=false;
+    if(host){
+      put.guestOrigins=(($('#pl-guests')||{}).value||'').split(/[\n,]+/).map(function(s){ return s.trim(); }).filter(Boolean);
+      var ns=(($('#pl-newsecret')||{}).value||'').trim();
+      if(ns){ put.joinSecret=ns; redo=true; }
+      var a=typedAddr();
+      try{ if(a&&a!==location.origin.replace(/\/+$/,'')) localStorage.setItem('lr-parlor-share-base',a); else localStorage.removeItem('lr-parlor-share-base'); }catch(err){}
+    } else {
+      var h=(($('#pl-host2')||{}).value||'').trim(), sec=(($('#pl-secret2')||{}).value||'').trim();
+      if(!h){ G.warn('The host address can\'t be empty.'); return; }
+      if(!sec){ G.warn('The join secret can\'t be empty.'); return; }
+      if(h!==(room.remoteHost||'')){ put.remoteHost=h; redo=true; }
+      if(sec!==(room.joinSecret||'')){ put.joinSecret=sec; redo=true; }
+    }
+    G.jsend('PUT',API+'/'+enc(room.id),put).then(function(p){
+      if(p&&p.id){ Object.keys(p).forEach(function(k){ room[k]=p[k]; }); }
+      shut(); G.ok('Saved.');
+      if(ROOM===room){ paintRoom(); if(redo) connect(); }
+    }).catch(function(err){ G.fail('Could not save',err); });
+  };
+}
+
+/* ── wiring ── */
+function showForm(){ view('form'); if(G.drawTalk) G.drawTalk(); }
+$('#pl-new').addEventListener('click',showForm);
+$('#pl-new2').addEventListener('click',showForm);
+$('#pl-back').addEventListener('click',function(){ view('home'); });
+$('#pl-send').addEventListener('click',send);
+$('#pl-text').addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){ e.preventDefault(); send(); } });
+$('#pl-text').addEventListener('input',function(){
+  var now=Date.now(); if(now-lastTyped<2500||!SOCK||!SOCK.connected) return;
+  lastTyped=now; SOCK.emit('parlor:typing',{displayName:me(), isTyping:true});
+});
+$('#pl-invite').addEventListener('click',panel);
+$('#pl-leave').addEventListener('click',leave);
+$('#pl-del').addEventListener('click',del);
+/* a room made or joined from the form opens straight away; a new room of yours shows its invite */
+document.addEventListener('lr:parlor',function(e){
+  var d=e.detail||{};
+  drawRooms().then(function(){ return d.id?open(d.id):null; }).then(function(){ if(d.created&&ROOM&&ROOM.id===d.id) panel(); });
 });
 })();
 </script>

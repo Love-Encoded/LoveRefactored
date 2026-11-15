@@ -14146,15 +14146,41 @@ const server = app.listen(PORT, () => {
   const parlorAllowedOrigins = configuredOrigins.length > 0
     ? new Set(configuredOrigins)
     : new Set([`http://localhost:${PORT}`, `http://127.0.0.1:${PORT}`]);
-  const parlorOriginCheck = (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (parlorAllowedOrigins.has(origin)) return callback(null, true);
+  // parlor_origin_v2: who may open a Parlor socket on this house.
+  //  - this house's own page (the address in the browser matches the address the
+  //    request arrived on) — so a hosted house can open its own rooms with no setup
+  //  - localhost on this port, or whatever PARLOR_ALLOWED_ORIGINS lists
+  //  - any guest address the host added to one of their rooms (Invite → Guest's address)
+  let parlorGuestOriginCache = { at: 0, set: new Set() };
+  const parlorGuestOrigins = () => {
+    if (Date.now() - parlorGuestOriginCache.at > 3000) {
+      const set = new Set();
+      try {
+        for (const p of getAllParlors()) {
+          if (p && p.role === 'host' && Array.isArray(p.guestOrigins)) p.guestOrigins.forEach(o => set.add(String(o)));
+        }
+      } catch (_e) { /* an unreadable room file — the other rules still apply */ }
+      parlorGuestOriginCache = { at: Date.now(), set };
+    }
+    return parlorGuestOriginCache.set;
+  };
+  const parlorOriginAllowed = (origin, req) => {
+    if (!origin) return true;
+    if (parlorAllowedOrigins.has(origin)) return true;
+    try {
+      const reqHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().toLowerCase();
+      if (reqHost && new URL(origin).host.toLowerCase() === reqHost) return true;
+    } catch (_e) { /* malformed Origin header */ }
+    return parlorGuestOrigins().has(origin);
+  };
+  const parlorCors = (req, callback) => {
+    if (parlorOriginAllowed(req.headers.origin, req)) return callback(null, { origin: true, methods: ['GET', 'POST'] });
     return callback(new Error('Origin not allowed for Parlor Socket.IO'));
   };
 
   const parlorIO = new SocketIOServer(server, {
     path: '/parlor-io',
-    cors: { origin: parlorOriginCheck, methods: ['GET', 'POST'] }
+    cors: parlorCors
   });
   const parlorRooms = new Map();
   const parlorSocketRateState = new Map();
@@ -14175,23 +14201,39 @@ const server = app.listen(PORT, () => {
   };
   const parlorNsp = parlorIO.of('/parlor');
   parlorNsp.on('connection', (socket) => {
-    socket.on('parlor:host', ({ code, parlorId, displayName, companions }) => {
+    // parlor_socket_guard_v1: every handler below reads its payload defensively.
+    // /parlor-io is reachable without logging in (guests have no account here), and
+    // an exception inside a socket handler takes the whole server down — so a
+    // missing or junk payload must never throw.
+    const parlorPayload = (payload) => (payload && typeof payload === 'object' ? payload : {});
+
+    socket.on('parlor:host', (payload) => {
+      const { code, parlorId, displayName, companions } = parlorPayload(payload);
       if (!socketRateAllowed(socket, 'parlor:host', 60 * 1000, 12)) {
         socket.emit('parlor:error', { message: 'Too many host attempts. Please wait and try again.' });
         return;
       }
       if (!code || !parlorId) return;
       const normalizedCode = String(code).trim().toUpperCase();
+      // parlor_host_check_v1: only a room this house actually created can be opened
+      // here. Without this, anyone who knew a room code could announce themselves as
+      // its host — reading everything said in it and dropping the join secret.
+      const hostParlor = getParlor(typeof parlorId === 'string' ? parlorId : '');
+      if (!hostParlor || hostParlor.role !== 'host' || String(hostParlor.code || '').trim().toUpperCase() !== normalizedCode) {
+        socket.emit('parlor:error', { message: 'This house has no room with that code to open.' });
+        return;
+      }
       socket.join(normalizedCode);
       socket.parlorCode = normalizedCode;
       socket.parlorId = parlorId;
       socket.displayName = displayName || 'Host';
       socket.parlorRole = 'host';
-      const hostParlor = getParlor(parlorId);
-      const hostSecretHash = hostParlor?.joinSecretHash || null;
+      const hostSecretHash = hostParlor.joinSecretHash || null;
+      const earlierRoom = parlorRooms.get(normalizedCode);
+      const stillHere = earlierRoom ? (earlierRoom.guests || []).filter(g => g && g.connected) : [];
       parlorRooms.set(normalizedCode, {
         host: socket,
-        guests: [],
+        guests: stillHere,
         companions: companions || [],
         joinSecretHash: hostSecretHash
       });
@@ -14200,10 +14242,19 @@ const server = app.listen(PORT, () => {
         parlor.status = 'waiting';
         saveParlor(parlor);
       }
+      // A host coming back to a room that still has guests in it is told who is there.
+      for (const g of stillHere) {
+        socket.emit('parlor:user-joined', {
+          displayName: g.displayName,
+          companions: g.parlorCompanions || [],
+          timestamp: new Date().toISOString()
+        });
+      }
       console.log(`🚪 Parlor host registered room ${normalizedCode} (${parlorId})`);
     });
 
-    socket.on('parlor:join', ({ code, parlorId, displayName, companions, joinSecret }) => {
+    socket.on('parlor:join', (payload) => {
+      const { code, parlorId, displayName, companions, joinSecret } = parlorPayload(payload);
       if (!socketRateAllowed(socket, 'parlor:join', 60 * 1000, 12)) {
         socket.emit('parlor:error', { message: 'Too many join attempts. Please wait and try again.' });
         return;
@@ -14224,7 +14275,8 @@ const server = app.listen(PORT, () => {
       socket.parlorId = parlorId;
       socket.displayName = displayName || 'Guest';
       socket.parlorRole = 'guest';
-      room.guests.push(socket);
+      socket.parlorCompanions = Array.isArray(companions) ? companions : [];
+      if (!room.guests.includes(socket)) room.guests.push(socket);
 
       parlorNsp.to(normalizedCode).emit('parlor:user-joined', {
         displayName: socket.displayName,
@@ -14253,6 +14305,7 @@ const server = app.listen(PORT, () => {
         return;
       }
       if (!socket.parlorCode) return;
+      if (!msg || typeof msg !== 'object') return;
       socket.to(socket.parlorCode).emit('parlor:message', msg);
     });
 
@@ -14272,6 +14325,9 @@ const server = app.listen(PORT, () => {
       const code = socket.parlorCode;
       if (!code) return;
       const room = parlorRooms.get(code);
+      // A host who reloads the page opens a new connection before this old one has
+      // finished closing. The room belongs to the new connection now — leave it open.
+      if (socket.parlorRole === 'host' && room && room.host !== socket) return;
       if (room) {
         if (socket.parlorRole === 'host') {
           parlorNsp.to(code).emit('parlor:host-left', {
