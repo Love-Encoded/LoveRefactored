@@ -120,7 +120,7 @@ A `dream` category is legal in the schema (legacy). At most one highly relevant 
 
 **Emotional intensity** is stored on the row (0–10) and used as a small retrieval rerank bonus (`TANEVAN_INTENSITY_WEIGHT`, default on). It is **not** added into confidence and discarded.
 
-Confidence increases automatically when the same fact shows up across multiple conversations (boost action). It also **decays** over time — `POST /decay` reduces confidence on old, unreinforced memories. Memories that drop below **25** are deactivated; rows unseen **> 365** days are hard-deactivated. Immune: pinned, protected/sensitive, core, `reinforcement_count > 6`, last seen within 30 days. Moderately reinforced rows (`> 3`) decay at half rate. Larger stores decay faster. A separate pass can **demote** stale core/important priorities. `dry_run` and `detail` return a per-memory preview.
+Confidence increases automatically when the same fact shows up across multiple conversations (boost action). It also **decays** over time — `POST /decay` fades memories nobody has touched in a while: **1 / 2 / 3** points for **30–90 / 90–180 / 180+** days dormant. "Touched" is the latest of reinforced by the pipeline (`last_seen`), handed to the companion by chat recall (`last_recalled`), or created (`first_seen`). Confidence never drops below **50** (`TANEVAN_DECAY_FLOOR`); decay never deactivates a memory and never demotes a priority. Immune: pinned, protected/sensitive, core, `reinforcement_count > 6`, touched within 30 days. Moderately reinforced rows (`> 3`) fade at half rate. `dry_run` and `detail` return a per-memory preview. A real run answers `403` (`status: locked`) unless Tanevan is started with `TANEVAN_DECAY_UNLOCK=1`; dry runs always work.
 
 ## Priority Tags
 

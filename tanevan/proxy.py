@@ -1039,6 +1039,18 @@ def run_decay():
     if not companion:
         return jsonify({"error": _NO_COMPANION_MSG}), 400
 
+    # decay_lock_v1 (2 Nov 2026): real decay runs are refused unless TANEVAN_DECAY_UNLOCK=1.
+    # Dry runs always work. The lock dates from the older decay, which could archive thousands of
+    # memories in one press on a store holding imported history. decay_v4 only fades, so unlocking
+    # is safe; the lock stays so a real run is always a deliberate choice.
+    if not dry_run and (os.environ.get("TANEVAN_DECAY_UNLOCK") or "").strip() != "1":
+        print(f"   🔒 decay REFUSED for {companion}: locked (set TANEVAN_DECAY_UNLOCK=1 to allow real runs; dry runs still work)")
+        return jsonify({
+            "error": "Decay is locked on this instance. Dry runs only. Set TANEVAN_DECAY_UNLOCK=1 to allow real runs.",
+            "status": "locked",
+            "companion": companion,
+        }), 403
+
     db = get_db(companion)
     print(f"\n{'🧪 Dry run' if dry_run else '🧹'} Memory decay for {companion}...")
     stats = db.decay_memories(dry_run=dry_run, detail=detail)
@@ -2080,6 +2092,12 @@ def inject_for_chat():
         budget = 0
     results = db.get_chat_injection_memories(query, n=n, token_budget=budget if budget > 0 else None)
 
+    # decay_v4 (2 Nov 2026): what chat recall hands the companion counts as "seen" for decay.
+    # Stamps last_recalled only — never last_seen, which the ranker reads. Never fails recall.
+    try:
+        db.touch_recalled([m.get("id") for m in (results or []) if isinstance(m, dict)])
+    except Exception as e:
+        print(f"  ⚠️ touch_recalled (inject) skipped: {e}")
 
     return jsonify({
         "companion": companion,

@@ -26,7 +26,7 @@ def _get_shared_embedder(companion_name=""):
                 print(f"Loading embedding model (shared, first use: {companion_name})...")
                 _SHARED_EMBEDDER = SentenceTransformer(EMBEDDING_MODEL)
     return _SHARED_EMBEDDER
-from db_time import ensure_utc, parse_db_datetime
+from db_time import ensure_utc, parse_db_datetime, sqlite_utc_str
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import json
@@ -136,6 +136,10 @@ ENTITY_MISS_PENALTY = float(os.environ.get("TANEVAN_ENTITY_MISS_PENALTY", "0.05"
 # Kill switch: TANEVAN_PROTECTED_FLOOR=0 restores pre-v1 behavior exactly.
 PROTECTED_FLOOR_ENABLED = os.environ.get("TANEVAN_PROTECTED_FLOOR", "1") not in ("0", "false", "False")
 PROTECTED_BONUS = float(os.environ.get("TANEVAN_PROTECTED_BONUS", "0.25"))
+
+# decay_v4 (2 Nov 2026): decay never takes confidence below this. 50 keeps a fully-faded
+# memory above the chat-injection floor (40) — it loses tiebreaks, it is never hidden.
+DECAY_FLOOR = int(os.environ.get("TANEVAN_DECAY_FLOOR", "50"))
 PROTECTED_RESERVED_SLOTS = int(os.environ.get("TANEVAN_PROTECTED_RESERVED_SLOTS", "1"))
 # category_weights_v1 (30 Aug 2026) — category scales the priority and recency
 # strokes in rerank_score. Baseline bench showed the semantic spread is ~0.1–0.25
@@ -541,6 +545,12 @@ class MemoryDB:
         if "emotional_intensity" not in _cols:
             cursor.execute("ALTER TABLE memories ADD COLUMN emotional_intensity INTEGER NOT NULL DEFAULT 0")
             print("  🧾 memories: added emotional_intensity column (one-time)")
+        # decay_v4 (2 Nov 2026): last time chat recall (/inject) handed this memory to the companion.
+        # Read by decay_memories only — the ranker never sees it (its recency term reads last_seen),
+        # so touching it on recall cannot create a rank feedback loop.
+        if "last_recalled" not in _cols:
+            cursor.execute("ALTER TABLE memories ADD COLUMN last_recalled TEXT")
+            print("  🧾 memories: added last_recalled column (one-time)")
 
         # === Audit Log ===
         # Immutable trail of destructive/lossy events: consolidation merges
@@ -1829,6 +1839,26 @@ class MemoryDB:
                 "last_seen": datetime.now(timezone.utc).isoformat()
             })
 
+    def touch_recalled(self, memory_ids, when=None):
+        """decay_v4 (2 Nov 2026): stamp last_recalled on memories chat recall just handed
+        to the companion. Direct SQL on purpose — not update_memory (no version snapshot,
+        no re-embed, no Chroma metadata write). Never raises: recall must never fail
+        because bookkeeping did. Returns the number of rows stamped."""
+        ids = [str(i) for i in (memory_ids or []) if i]
+        if not ids:
+            return 0
+        stamp = when or sqlite_utc_str(datetime.now(timezone.utc))
+        try:
+            self.db.executemany(
+                "UPDATE memories SET last_recalled = ? WHERE id = ?",
+                [(stamp, i) for i in ids],
+            )
+            self.db.commit()
+            return len(ids)
+        except Exception as e:
+            print(f"  ⚠️ touch_recalled failed ({e}) — recall unaffected")
+            return 0
+
     def get_all_memories(self, category=None, active_only=True):
         """Get all memories, optionally filtered by category."""
         query = "SELECT * FROM memories WHERE 1=1"
@@ -1891,45 +1921,61 @@ class MemoryDB:
 
     def decay_memories(self, dry_run=False, detail=False):
         """
-        Apply memory decay based on time since last reinforcement.
-        Models Ebbinghaus's forgetting curve: unreinforced memories fade over time.
+        decay_v4 (2 Nov 2026) — memories fade, they don't die.
+
+        A gentle confidence fade for memories nobody has touched in a while, so that when
+        two memories compete for an injection slot, the one that is part of the companion's
+        living memory wins. Decay never archives, never demotes, never takes a memory below
+        the floor. Archiving stays a human or consolidation decision.
+
+        "Seen" means any of: reinforced by the pipeline (last_seen), handed to the companion
+        by chat recall (last_recalled), or born (first_seen). Dormancy is measured from the
+        most recent of the three.
 
         Rules:
-        - Pinned memories: immune (never decay)
-        - Protected/sensitive memories: immune (never decay, never demote)
-        - Core priority: immune (never decay)
-        - Reinforcement count > 6: immune (well-reinforced)
-        - Reinforcement count > 3: half decay rate
-        - Days since last_seen < 30: no decay (recently active)
-        - Days 30-90: light decay (1 point)
-        - Days 90-180: moderate decay (2 points)
-        - Days 180+: heavy decay (3 points)
-        - Confidence drops below 25: auto-deactivate (active = 0)
+        - Inactive: skipped
+        - Pinned: immune
+        - Protected / sensitive: immune
+        - Core priority: immune, and never demoted — priority is the extractor's call
+        - Reinforcement count > 6: immune
+        - No usable date at all: skipped
+        - Dormant < 30 days: immune
+        - Dormant 30-90 days: 1 point; 90-180: 2 points; 180+: 3 points
+        - Reinforcement count > 3: half rate (never below 1)
+        - Floor: confidence never drops below DECAY_FLOOR (default 50, env
+          TANEVAN_DECAY_FLOOR). Memories already at or below it are left alone.
+        - Nothing is ever deactivated or demoted by this function.
 
-        Returns dict with stats about what happened. With detail=True, the dict
-        also carries a "detail" list of per-memory entries describing each
-        affected memory (action: deactivate / decay / demote) — used by the UI
-        to preview a run and let the user rescue memories by pinning.
+        History: v1-v3 had a hard "unseen 365+ days -> archive" cliff, a store-size
+        multiplier (up to 16 points per run), and a core -> important demotion pass.
+        On a store holding imported history, one run of that could archive thousands
+        of memories at once, because "unseen" only meant the updater had not merged
+        into them.
+
+        Returns a stats dict. With detail=True it also carries a "detail" list of
+        per-memory entries (action: "decay") used by the UI preview. The deactivated and
+        demoted keys are kept, always 0, for the UI and the Node preview route.
         """
         from datetime import datetime, timezone
 
         now = datetime.now(timezone.utc)
+        floor = DECAY_FLOOR
         stats = {
             "decayed": 0,
             "deactivated": 0,
             "demoted": 0,
+            "at_floor": 0,
+            "floor": floor,
             "immune_pinned": 0,
             "immune_protected": 0,
             "immune_core": 0,
             "immune_reinforced": 0,
             "immune_recent": 0,
             "skipped_inactive": 0,
+            "skipped_undated": 0,
             "total_scanned": 0,
         }
         detail_entries = []
-        # Ids already handled by the main decay loop, so the demotion pass
-        # skips them — mirrored for dry runs so previews match real runs.
-        handled_ids = set()
 
         def add_detail(mem, action, **extra):
             if not detail:
@@ -1942,180 +1988,95 @@ class MemoryDB:
                 "confidence": mem.get("confidence", 0),
                 "reinforcement_count": mem.get("reinforcement_count", 1) or 1,
                 "last_seen": mem.get("last_seen") or mem.get("first_seen") or "",
+                "last_recalled": mem.get("last_recalled") or "",
                 "action": action,
                 **extra,
             })
 
+        def _latest(*raws):
+            """Most recent parseable timestamp among the given raw values, or None."""
+            best = None
+            for raw in raws:
+                if not raw:
+                    continue
+                try:
+                    dt = parse_db_datetime(raw)
+                except (ValueError, TypeError):
+                    dt = None
+                if dt is None:
+                    continue
+                dt = ensure_utc(dt)
+                if best is None or dt > best:
+                    best = dt
+            return best
+
         rows = self.db.execute(
             "SELECT id, content, category, confidence, priority, pinned, protected, sensitive, "
-            "reinforcement_count, last_seen, first_seen, active "
+            "reinforcement_count, last_seen, last_recalled, first_seen, active "
             "FROM memories"
         ).fetchall()
 
         stats["total_scanned"] = len(rows)
-        total_active = sum(1 for r in rows if dict(r).get("active", 0))
         updates = []
 
         for row in rows:
             mem = dict(row)
 
-            # Skip already-inactive memories
             if not mem["active"]:
                 stats["skipped_inactive"] += 1
                 continue
-
-            # Immune: pinned
             if mem.get("pinned", 0):
                 stats["immune_pinned"] += 1
                 continue
-
-            # Immune: protected/sensitive — never decays, never culled
             if mem.get("protected", 0) or mem.get("sensitive", 0):
                 stats["immune_protected"] += 1
                 continue
-
-            # Immune: core priority
             if mem.get("priority") == "core":
                 stats["immune_core"] += 1
                 continue
 
-            # Immune: well-reinforced (seen many times)
             reinforcement = mem.get("reinforcement_count", 1) or 1
             if reinforcement > 6:
                 stats["immune_reinforced"] += 1
                 continue
 
-            # Calculate days since last seen
-            last_seen_raw = mem.get("last_seen") or mem.get("first_seen") or ""
-            if not last_seen_raw:
+            seen_dt = _latest(mem.get("last_seen"), mem.get("last_recalled"), mem.get("first_seen"))
+            if seen_dt is None:
+                stats["skipped_undated"] += 1
                 continue
-            try:
-                last_seen_dt = parse_db_datetime(last_seen_raw)
-                if last_seen_dt is None:
-                    continue
-                days_since = (now - ensure_utc(last_seen_dt)).days
-            except (ValueError, TypeError):
-                continue
+            days_since = (now - seen_dt).days
 
-            # Immune: recently active
             if days_since < 30:
                 stats["immune_recent"] += 1
                 continue
 
-            # Hard staleness cutoff: any non-core, non-pinned memory unseen for
-            # 12+ months is deactivated regardless of confidence. At 10k+ memories
-            # these zombies just pollute the index.
-            if days_since > 365:
-                add_detail(mem, "deactivate", new_confidence=0, days_since=days_since, reason="unseen 365+ days")
-                handled_ids.add(mem["id"])
-                if dry_run:
-                    stats["deactivated"] += 1
-                    continue
-                updates.append((mem["id"], {"confidence": 0, "active": 0}))
-                stats["deactivated"] += 1
+            confidence = mem.get("confidence", 0) or 0
+            if confidence <= floor:
+                stats["at_floor"] += 1
                 continue
 
-            # Adaptive decay: companions with more memories decay faster.
-            # This prevents the index from growing unboundedly.
-            if total_active > 5000:
-                decay_scale = 2.0
-            elif total_active > 2000:
-                decay_scale = 1.5
-            else:
-                decay_scale = 1.0
-
-            # Base decay by age
-            if days_since < 60:
-                base_decay = 1
-            elif days_since < 120:
-                base_decay = 3
+            if days_since < 90:
+                decay = 1
             elif days_since < 180:
-                base_decay = 5
+                decay = 2
             else:
-                base_decay = 8
-
-            decay = max(1, int(base_decay * decay_scale))
-
-            # Half decay for moderately reinforced memories
+                decay = 3
             if reinforcement > 3:
                 decay = max(1, decay // 2)
 
-            new_confidence = max(0, mem["confidence"] - decay)
+            new_confidence = max(floor, confidence - decay)
 
-            add_detail(
-                mem,
-                "deactivate" if new_confidence < 25 else "decay",
-                new_confidence=new_confidence,
-                days_since=days_since,
-            )
-            handled_ids.add(mem["id"])
-
+            add_detail(mem, "decay", new_confidence=new_confidence, days_since=days_since,
+                       reason=f"dormant {days_since} days · confidence {confidence} → {new_confidence}")
+            stats["decayed"] += 1
             if dry_run:
-                if new_confidence < 25:
-                    stats["deactivated"] += 1
-                else:
-                    stats["decayed"] += 1
                 continue
+            updates.append((mem["id"], {"confidence": new_confidence}))
 
-            # Apply the decay
-            update_fields = {"confidence": new_confidence}
-            if new_confidence < 25:
-                update_fields["active"] = 0
-                stats["deactivated"] += 1
-            else:
-                stats["decayed"] += 1
-
-            updates.append((mem["id"], update_fields))
-
-        # Priority demotion: core/important memories that haven't been reinforced
-        # in a long time get demoted. Prevents the immune-to-decay core pool from
-        # growing forever. Only runs on active memories not already handled above.
-        # handled_ids covers dry runs too, so previews match what a real run does.
-        demoted_ids = {mid for mid, _ in updates} | handled_ids
-        demotion_count = 0
-        for row in rows:
-            mem = dict(row)
-            if not mem["active"] or mem["id"] in demoted_ids:
-                continue
-            if mem.get("pinned", 0):
-                continue
-            # Protected/sensitive memories never demote — dormancy is expected for them
-            if mem.get("protected", 0) or mem.get("sensitive", 0):
-                continue
-
-            reinforcement = mem.get("reinforcement_count", 1) or 1
-            last_seen_raw = mem.get("last_seen") or mem.get("first_seen") or ""
-            if not last_seen_raw:
-                continue
-            try:
-                last_seen_dt = parse_db_datetime(last_seen_raw)
-                if last_seen_dt is None:
-                    continue
-                days_dormant = (now - ensure_utc(last_seen_dt)).days
-            except (ValueError, TypeError):
-                continue
-
-            current_pri = mem.get("priority", "important")
-
-            # Core → important after 6 months without reinforcement
-            if current_pri == "core" and days_dormant > 180 and reinforcement < 10:
-                add_detail(mem, "demote", new_priority="important", days_since=days_dormant)
-                if not dry_run:
-                    updates.append((mem["id"], {"priority": "important"}))
-                demotion_count += 1
-
-            # Important → notable after 4 months without reinforcement
-            elif current_pri == "important" and days_dormant > 120 and reinforcement < 5:
-                add_detail(mem, "demote", new_priority="notable", days_since=days_dormant)
-                if not dry_run:
-                    updates.append((mem["id"], {"priority": "notable"}))
-                demotion_count += 1
-
-        stats["demoted"] = demotion_count
         if detail:
             stats["detail"] = detail_entries
 
-        # Batch apply updates
+        # Batch apply updates (empty on a dry run)
         for memory_id, fields in updates:
             self.update_memory(memory_id, fields)
 
