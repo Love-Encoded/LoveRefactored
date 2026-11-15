@@ -1438,6 +1438,7 @@ button.m-stat:hover{background:var(--lamp-hi);border-color:var(--line-lit)}
 #pl-thread .cs-gr p{font-size:14px;line-height:1.6;color:var(--ink)}
 #pl-thread .cs-gr.sys p{font-size:10px;color:var(--ink-3)}
 #pl-thread .typing{padding:4px 0 8px 0}
+.pl-react{display:inline-block;font-size:15px;line-height:1;padding:3px 7px;margin-right:2px;border-radius:var(--r-full);background:var(--lamp-hi);vertical-align:middle}
 .pl-tag{font-size:9px;letter-spacing:.1em;color:var(--ink-3);border:1px solid var(--line-lit);border-radius:var(--r-full);padding:1px 6px;margin-left:4px}
 .pl-say{display:flex;gap:var(--s2);align-items:flex-end;margin:0 var(--s5) var(--s4);padding:var(--s3);border:1px solid var(--line);border-radius:var(--r-md);background:var(--room)}
 .pl-say .grow{flex:1;min-height:44px;max-height:180px;overflow-y:auto;outline:none;font-size:14px;line-height:1.5;color:var(--ink);padding:10px 6px;white-space:pre-wrap}
@@ -13418,6 +13419,8 @@ function when(ts){ if(!ts) return ''; var d=G.dayLabel?G.dayLabel(ts):''; var t=
 /* what a line says: escaped first, then only **bold** and *italics* — lines from the other house are a stranger's text */
 function fmt(text){
   var s=esc(String(text==null?'':text));
+  /* a companion's [react: 🖤] is a reaction, not a line of dialogue — show the emoji, not the brackets */
+  s=s.replace(/\[react:\s*([^\]\n]{1,8})\]\s*/gi,'<span class="pl-react">$1</span> ');
   s=s.replace(/\*\*([^*\n](?:[^*\n]|\*(?!\*))*?)\*\*/g,'<strong>$1</strong>');
   s=s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g,'$1<em>$2</em>');
   return s;
