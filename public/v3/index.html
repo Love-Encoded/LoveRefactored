@@ -10215,7 +10215,7 @@ event:function(ev){
     '<div class="row2"><div class="field"><label for="ev-s">Starts <span class="inh">optional</span></label><input class="inp" id="ev-s" type="time" value="'+esc(ev&&ev.time||'')+'"></div>'+
       '<div class="field"><label for="ev-e">Ends <span class="inh">optional</span></label><input class="inp" id="ev-e" type="time" value="'+esc(ev&&ev.endTime||'')+'"></div></div>'+
     '<div class="row2"><div class="field"><label for="ev-r">Repeats</label>'+
-      '<select class="inp" id="ev-r"><option value="">One-time</option><option value="weekly">Every week</option><option value="monthly">Every month</option><option value="yearly">Every year</option></select></div>'+
+      '<select class="inp" id="ev-r">'+[['','One-time'],['weekly','Every week'],['monthly','Every month'],['yearly','Every year']].map(function(o){ var cur=(ev&&ev.recurrence&&ev.recurrence.frequency)||''; return '<option value="'+o[0]+'"'+(cur===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join('')+'</select></div>'+
       '<div class="field"><label for="ev-g">Tags</label><input class="inp" id="ev-g" value="'+esc(ev&&(ev.tags||[]).join(', ')||'')+'"></div></div>'+
     '<div class="field"><label>Who it involves <span class="inh">optional</span></label>'+
       '<p class="hint">They can reference it in conversation on the day, and beforehand if lead time is on.</p>'+
@@ -10232,7 +10232,7 @@ event:function(ev){
         time:$('#ev-s',b).value||null, endTime:$('#ev-e',b).value||null,
         allDay:!$('#ev-s',b).value,
         category:$('#ev-c',b).value,
-        recurrence:$('#ev-r',b).value||null,
+        recurrence:(function(f,d){ if(!f||!d) return null; var p=d.split('-').map(Number); var dn=['sunday','monday','tuesday','wednesday','thursday','friday','saturday']; if(f==='weekly') return {frequency:'weekly',day:dn[new Date(p[0],p[1]-1,p[2]).getDay()]}; if(f==='monthly') return {frequency:'monthly',dayOfMonth:p[2]}; return {frequency:'yearly',month:p[1],dayOfMonth:p[2]}; })($('#ev-r',b).value,$('#ev-d',b).value),
         tags:$('#ev-g',b).value.split(',').map(function(t){return t.trim();}).filter(Boolean),
         companions:G.picked('event'),
         notes:$('#ev-n',b).value
