@@ -320,7 +320,22 @@ A **document** (canonical draft, attributed blocks) plus a **green room** (talk 
 
 ### Lorebooks
 
-Keyword-triggered world context. Each book has an always-on **book prompt** (cached) plus entries (keywords + prompt). Assign to specific companions or the whole house. A book that never fires still costs tokens if its book prompt is on. Collapse entries by default; cap 100 per book.
+Keyword-triggered world context. Each book has an always-on **book prompt** (cached) plus entries (keywords + prompt). Assign to specific companions or the whole house. A book that never fires still costs tokens if its book prompt is on. Collapse entries by default; cap 100 per book. A third kind of book, **World**, is read only by the camera (see below).
+
+### World books (places, pets, things)
+
+A **World** is a third kind of lorebook: a house. Its entries are the places, pets, objects, and clothes that should look the same in every photo. World books are read **only by the camera**. Nothing in them is injected into chat, and a companion with no world book gets exactly the prompts they got before.
+
+- **Make one:** Lorebooks → New book → open it → **Kind: World** → tick who lives there under *Who it applies to*. A world book with nobody ticked applies to everyone (pets, your car, your classroom). One house per book.
+- **Entries** are a *place*, *pet*, *object*, *npc*, or *clothing*. Each has a name, the names it answers to (the first one is its public name, so lead with the plain noun: `bedroom`, not `my room`), a short description, who calls it theirs, and up to two **photos**.
+- **Describe the big shapes only**, about 100 words: the bed, the walls, the window, the floor, the one big object. Materials and layout. No lighting, no time of day, no mood words, no lettering. Clutter and small objects belong in the photo. The photo is canon: if it differs from the text, the text follows the photo.
+- **Photos:** the empty room, wide, from a corner, even light, no people, no animals. Files over 2048px are shrunk on upload. Pets and garments get their own entry and their own photo, so they appear when named and only then.
+- **Who calls it mine** is you, one or more companions, or nobody. It decides which room "my room" means depending on who says it, and where a photo lands when nobody says where: a person's own room first, then the book's **Default place**. Put the default on a common room.
+- **Clothing and owned objects** are in the frame only when their owner is in the photo.
+- **How a photo finds its place:** the scene line first (a `[photo:]`, `[camera:]`, `[us:]` or `[post:]` tag, or the gallery scene box), then the last 16 messages newest-first, then the default. In chat a place counts only when it is used as a place ("into the kitchen"), not when it is mentioned ("the kitchen needs paint"). A scene line that names a known place sends that place's description to the prompt writer as a `SETTING CANON` block. Otherwise the writer gets a `KNOWN PLACES` menu of the house, reads the conversation, and answers `PLACE: <name>` or `PLACE: NONE` on its first line; that line is removed before the prompt is used. When the prompt writer is **LM Studio** there is no menu: the keyword match (or the default) is sent as a plain `SETTING CANON` block.
+- The place's photo is sent to Nano Banana **after the face references**, with a sentence saying which image is the room. With 8 or more face photos in one request the room photo is left out.
+- Companions are told the names of their world's places in the tools block and asked to say where they are in every photo tag. The gallery scene box shows one chip per place.
+- Data: `data/lorebooks/*.json` with `"type": "world"`; photos in `data/lorebook_refs/`. Resolver: `lib/scene-resolver.js`. `node scripts/scene_resolver_test.js` runs its cases with no server and no disk. A photo that used a world book logs `📍 scene: …`, and `📎 setting refs (…)` when a room, pet or garment photo was sent.
 
 ### Calendar
 
@@ -771,13 +786,14 @@ LoveRefactored/
 ├── server.js              # Express app: LLM routing, image/voice/proactive
 ├── lib/                   # system-prompt.js, minis.js, image-prompts.js,
 │                          #   image-prompts-small.js (LM Studio prompt writer),
-│                          #   background-schedule.js, lr_settings.py
+│                          #   scene-resolver.js (world books), background-schedule.js, lr_settings.py
 ├── auth.example.js        # Copy to auth.js (gitignored) for public hosts
 ├── routes/                # calendar, companions, groups, history-chat,
 │                          #   logs-settings, lorebooks, parlors, persona, spotify,
 │                          #   telegram, v3-shell, beta-agreement
 ├── db/                    # SQLite chat (chat.js, chat-storage.js, chat-backup.js)
-├── scripts/               # migrate-chat-to-sqlite.js, auth-users.js, dedup-data.py
+├── scripts/               # migrate-chat-to-sqlite.js, auth-users.js, dedup-data.py,
+│                          #   scene_resolver_test.js (world-book resolver cases)
 ├── public/
 │   ├── v3/                # Primary UI at /  (index.html + logos)
 │   ├── wall.html          # The Wall (also iframed from v3)

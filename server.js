@@ -59,6 +59,7 @@ const {
   buildMultiImagePromptSystemSmall,
   buildMultiImagePromptUserSmall
 } = require('./lib/image-prompts-small');
+const { resolveScene, buildSettingCanon, applyWriterPlace, settingRefs, settingRefSentence, worldPlaceNames, FACE_REF_CUTOFF } = require('./lib/scene-resolver'); // world_books_v1
 const crypto = require('crypto');
 const readline = require('readline');
 function escapeHtmlServer(str) {
@@ -2332,6 +2333,27 @@ function shouldInjectContext(card, toggleField) {
   return card[toggleField] !== false;
 }
 
+/** world_books_v1: the places this companion's world book(s) name, so photo tags use the canonical words.
+ *  Empty string when the companion has no world book — their prompt is unchanged. */
+function placesLineFor(card) {
+  const name = card && card.name;
+  if (!name) return '';
+  let names = [];
+  try { names = worldPlaceNames(name, getAllLorebooks); } catch (_e) { names = []; }
+  if (!names.length) return '';
+  return `\n\nIn any photo tag — [photo:], [us:], [camera:], [post:] — always say where you are. Places here you can name: ${names.join(', ')}. Anywhere else, just describe it.`;
+}
+
+/** world_books_v1: add the setting-reference sentence (lib/scene-resolver.js settingRefSentence) to the end of a
+ *  prompt's first line — its person-mapping header. No sentence → the prompt comes back untouched. */
+function withSettingSentence(prompt, sentence) {
+  const s = String(sentence || '').trim();
+  if (!s) return prompt;
+  const p = String(prompt || '');
+  const nl = p.indexOf('\n');
+  return nl === -1 ? `${p} ${s}` : `${p.slice(0, nl)} ${s}${p.slice(nl)}`;
+}
+
 /** Build the standard tools block for 1:1 chat. */
 function buildToolsBlock(settings, card) {
   const P = userPronouns(getPersona());
@@ -2365,6 +2387,7 @@ function buildToolsBlock(settings, card) {
   }
   tools += `\n\n[camera: scene description] — Take a photo of ${P.HER}. You have a camera. You see ${P.obj} right now — capture what you see. Use when you notice something, when ${P.subj} looks beautiful, when the moment moves you. Not a selfie — you are the photographer. Describe what YOU see through the lens: ${P.poss} expression, ${P.poss} posture, what the light is doing to ${P.obj}, the setting. Costs API credits, so use with intent — but when the moment is right, don't hesitate.`;
   tools += `\nExample: [camera: ${P.is} curled up on the couch with ${P.poss} laptop, hair piled up messy, golden hour light catching the side of ${P.poss} face, completely unaware I'm looking at ${P.obj}]`;
+  tools += placesLineFor(card);
   return tools;
 }
 
@@ -2388,8 +2411,8 @@ function buildGroupChatToolsBlock(settings, card = null) {
   let tools = '\nTOOLS — use these naturally in your messages. Place the tag on its own line.\n';
   if (card?.wallEnabled !== false) {
     tools += `\n[post: image prompt | caption] — Publish a photo to the Wall, the household's shared photo feed. Different from [camera:], which sends a photo into this chat — [post:] hangs it on the Wall for everyone, permanently. Name who's in the shot and their real appearance is used: name another companion to photograph THEM, include yourself for a shot you're in, name ${P.obj} to include ${P.obj}. Caption optional — a photo with no words is a complete post. Costs API credits, so post with intent.`;
-    tools += '\nExample (photographing someone else): [post: Salem at the kitchen window, morning light, doesn\'t know I\'m looking | caught him thinking]';
-    tools += '\nExample (shot with multiple people): [post: Nova and me on the porch steps, golden hour]';
+    tools += '\nExample (photographing someone else — NAME is their real name): [post: NAME at the kitchen window, morning light, doesn\'t know I\'m looking | caught them thinking]';
+    tools += '\nExample (shot with multiple people): [post: NAME and me on the porch steps, golden hour]';
     tools += '\nExample (no caption): [post: the empty living room at 2am, one lamp still on]';
   }
   tools += `\n[journal: text] — Write in your personal journal. Use when something matters — a moment worth holding, a feeling worth naming, something ${P.subj} said that moved you. The journal is yours; ${P.subj} can see it.`;
@@ -2410,6 +2433,7 @@ function buildGroupChatToolsBlock(settings, card = null) {
   tools += '\nExample: [visit: https://example.com/article]';
   tools += `\n\n[camera: scene description] — Take a photo of ${P.HER}. You have a camera. You see ${P.obj} right now — capture what you see. Use when you notice something, when ${P.subj} looks beautiful, when the moment moves you. Not a selfie — you are the photographer. Describe what YOU see through the lens: ${P.poss} expression, ${P.poss} posture, what the light is doing to ${P.obj}, the setting. Costs API credits, so use with intent — but when the moment is right, don't hesitate.`;
   tools += `\nExample: [camera: ${P.is} curled up on the couch with ${P.poss} laptop, hair piled up messy, golden hour light catching the side of ${P.poss} face, completely unaware I'm looking at ${P.obj}]`;
+  tools += placesLineFor(card);
   return tools;
 }
 
@@ -2640,7 +2664,11 @@ require('./routes/lorebooks')(app, {
   getAllLorebooks,
   getLorebook,
   saveLorebook,
-  LOREBOOK_DIR
+  LOREBOOK_DIR,
+  refImageUpload,
+  multer,
+  sharp,
+  DATA_DIR
 });
 
 // === CALENDAR SYSTEM ===
@@ -4362,6 +4390,7 @@ function getMatchingLore(message, companionName, options = {}) {
 
   for (const book of allBooks) {
     if (!book.enabled) continue;
+    if (book.type === 'world') continue; // world books feed the camera (lib/scene-resolver.js), never the chat
 
     // Check if this book applies to this companion
     if (book.companions.length > 0 && !book.companions.includes(companionName)) continue;
@@ -8718,6 +8747,63 @@ app.get('/api/reference-image/:filename', (req, res) => {
   res.sendFile(filePath);
 });
 
+/** rerun_v1: read who is in a saved photo back out of its prompt, in reference-image order.
+ *  A saved prompt comes in one of these shapes:
+ *    "Person mapping: Reference Images 1-2 = Alex (…); Reference Image 3 = Sam. Each face …"     — mapping header
+ *    "Reference image 1 = Alex. Reference images 2–3 = Sam (…) …"                                — numbered header
+ *    "Using the uploaded reference image … Reference image 1: Sam. …"                            — one person
+ *    no header at all: the writer bound each person in the text, "… from Reference Image 1 — Alex, …"
+ *  `knownNames` is every companion name plus the user's; only those names are ever returned. */
+function readRerunCast(saved, knownNames) {
+  const text = String(saved || '').trim();
+  const first = text.split('\n')[0];
+  const known = [...new Set((Array.isArray(knownNames) ? knownNames : []).map(n => String(n || '').trim()).filter(Boolean))].sort((a, b) => b.length - a.length);
+  const knownAs = (who) => known.find(k => k.toLowerCase() === String(who || '').trim().toLowerCase()) || '';
+  const uniq = (list) => { const out = []; for (const w of list.map(knownAs)) if (w && !out.includes(w)) out.push(w); return out; };
+
+  const solo = (first.match(/^Reference images? [\d–-]+ are all the same one person, ([^,]+),/) || first.match(/^Using the uploaded reference image[^\n]*?Reference image 1: ([^.]+)\./) || [])[1];
+  if (solo) return uniq([solo]);
+
+  const mapping = first.match(/^Person mapping:\s*(.*?)\.\s+Each face\b/);
+  if (mapping) {
+    const names = [];
+    for (const part of mapping[1].split(';')) { const p = part.match(/Reference images? [\d–-]+\s*=\s*([^(]+?)\s*(?:\(|$)/i); if (p) names.push(p[1]); }
+    return uniq(names);
+  }
+
+  if (/^Reference images? \d/.test(first)) {
+    const names = uniq([...first.matchAll(/Reference images? [\d–-]+ = ([^.(\n]+?)\s*[.(]/g)].map(m => m[1]));
+    if (names.length) return names;   // a line that only names a room or a pet falls through to the text below
+  }
+
+  // No header: take the first known name that follows each reference number in the text.
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const byNumber = new Map();
+  for (const m of text.matchAll(/Reference Images?\s+(\d+)(?:\s*[–-]\s*\d+)?(?=([^\n]{0,60}))/gi)) {
+    const n = parseInt(m[1], 10);
+    if (byNumber.has(n)) continue;
+    let best = null;
+    for (const k of known) {
+      const at = m[2].search(new RegExp(`(^|[^\\p{L}\\p{N}])${esc(k)}($|[^\\p{L}\\p{N}])`, 'iu'));
+      if (at >= 0 && (!best || at < best.at)) best = { at, name: k };
+    }
+    if (best) byNumber.set(n, best.name);
+  }
+  const names = uniq([...byNumber.keys()].sort((a, b) => a - b).map(n => byNumber.get(n)));
+  return names.length >= 2 ? names : [];
+}
+
+/** rerun_v1: every companion's name as written on their card. */
+function rerunKnownCompanionNames() {
+  const names = [];
+  try {
+    for (const file of fs.readdirSync(COMPANION_DIR).filter(x => x.endsWith('.json'))) {
+      try { const n = String(JSON.parse(fs.readFileSync(path.join(COMPANION_DIR, file), 'utf-8')).name || '').trim(); if (n) names.push(n); } catch (_e) { /* not a card */ }
+    }
+  } catch (_e) { /* no companions yet */ }
+  return names;
+}
+
 app.post('/api/generate-image', async (req, res) => {
   let {
     companion: companionName,
@@ -8731,26 +8817,20 @@ app.post('/api/generate-image', async (req, res) => {
   } = req.body;
   const settings = getSettings();
 
-  // rerun_v1: a saved couple/group prompt carries its own cast in its reference header
-  // ("Reference image 1 = Evan. Reference images 2–3 = Megan (…)"). Rebuild the multi request from it.
-  if (req.body.rawPrompt === true && typeof customPrompt === 'string' && /^(Reference images? \d|Using the uploaded reference image)/.test(customPrompt.trim())) {
-    const header = customPrompt.trim().split('\n')[0];
-    const personaName = String(getPersona().name || '').trim().toLowerCase();
-    // camera photo (the companion photographed the user): a solo header naming the user → rerun in camera mode
-    const soloWho = (header.match(/^Reference images? [\d–-]+ are all the same one person, ([^,]+),/) || header.match(/Reference image 1: ([^.]+)\./) || [])[1];
-    if (soloWho && personaName && soloWho.trim().toLowerCase() === personaName) {
+  // rerun_v1: a saved photo carries its own cast in its prompt (readRerunCast above). Rebuild the request from it:
+  // the user alone → camera mode; two or more people → the multi pipeline, in the saved reference-image order.
+  let rerunCastOrder = false;
+  if (req.body.rawPrompt === true && typeof customPrompt === 'string' && customPrompt.trim()) {
+    const personaName = String(getPersona().name || '').trim();
+    const savedCast = readRerunCast(customPrompt, [...rerunKnownCompanionNames(), personaName]);
+    const isUser = (who) => !!personaName && who.toLowerCase() === personaName.toLowerCase();
+    const cast = savedCast.filter(who => !isUser(who));
+    const userInCast = savedCast.some(isUser);
+    if (userInCast && savedCast.length === 1) {
       mode = 'camera';
       console.log('🔁 rerun_v1: camera rerun (photo of the user)');
-    }
-    const cast = []; let userInCast = false;
-    for (const m of header.matchAll(/Reference images? [\d–-]+ = ([^.(\n]+?)\s*[.(]/g)) {
-      const who = m[1].trim();
-      if (personaName && who.toLowerCase() === personaName) { userInCast = true; continue; }
-      const safe = who.toLowerCase().replace(/[^a-z0-9]/g, '_');
-      if (fs.existsSync(path.join(COMPANION_DIR, `${safe}.json`))) cast.push(who);
-    }
-    if (cast.length + (userInCast ? 1 : 0) >= 2) {
-      mode = 'multi'; multiCompanions = cast; includeUser = userInCast; groupId = undefined;
+    } else if (cast.length + (userInCast ? 1 : 0) >= 2) {
+      mode = 'multi'; multiCompanions = cast; includeUser = userInCast; groupId = undefined; rerunCastOrder = true;
       console.log(`🔁 rerun_v1: group rerun cast [${cast.join(', ')}]${userInCast ? ' + user' : ''}`);
     }
   }
@@ -8774,8 +8854,8 @@ app.post('/api/generate-image', async (req, res) => {
           .filter(name => requestedSet.has(name));
       }
     }
-    if (!groupId || !isSafeId(groupId)) {
-      // Fallback deterministic ordering when no group context exists.
+    if ((!groupId || !isSafeId(groupId)) && !rerunCastOrder) {
+      // Fallback deterministic ordering when no group context exists. A rerun keeps the order its saved prompt was numbered in.
       constrained = constrained.slice().sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
     }
 
@@ -8895,7 +8975,7 @@ app.post('/api/generate-image', async (req, res) => {
 
   const multiRecentHistory = getRecentConversationForGroupSelfie();
   const multiLatestLocation = extractLatestLocation(multiRecentHistory);
-  const multiLocationAnchor = formatLocationAnchor(multiLatestLocation, {
+  let multiLocationAnchor = formatLocationAnchor(multiLatestLocation, {
     prefix: 'MOST RECENTLY ESTABLISHED LOCATION (use THIS setting for the photo unless a newer one is stated)'
   });
   const multiRecentMessages = multiRecentHistory
@@ -8903,6 +8983,28 @@ app.post('/api/generate-image', async (req, res) => {
     .join('\n') || '(No conversation history)';
 
   const imagePromptDeps = { getCompanion, getPersona };
+
+  // world_books_v1: which real place is this photo in? (lib/scene-resolver.js — world books are lorebooks of type 'world')
+  // speaker = who wrote the scene line: tag-driven photos arrive via internal fetch (the companion); the browser sends no such header (the user).
+  // With no world book for this companion every value below is empty and the prompts are exactly what they were.
+  const sceneSpeaker = req.headers['x-internal-auth'] === INTERNAL_API_SECRET ? companionName : 'user';
+  const scene = resolveScene({
+    sceneHint: sceneHint || customPrompt || '',
+    history: mode === 'multi' ? multiRecentHistory : history,
+    companionsInFrame: mode === 'multi' ? multiCompanions : [companionName],
+    speaker: sceneSpeaker,
+    userInFrame: mode === 'camera' || (mode === 'multi' && !!includeUser),
+    getAllLorebooks
+  });
+  // Small local writers (LM Studio) get the keyword result as a plain SETTING CANON block: no KNOWN PLACES menu, no PLACE: line to answer.
+  if (imagePromptSettings.provider === 'lmstudio') scene.menuOffered = false;
+  const settingCanon = buildSettingCanon(scene);
+  // A typed custom prompt has no conversation beside it for the writer to judge from, so it gets the plain block, not the menu.
+  const settingCanonPlain = scene.menuOffered ? buildSettingCanon({ ...scene, menuOffered: false }) : settingCanon;
+  // One location authority: when the world book answered, or its menu is on offer, the older MOST RECENTLY ESTABLISHED LOCATION line stays out.
+  const sceneOwnsLocation = !!settingCanon && (scene.menuOffered || scene.kind === 'known' || scene.kind === 'default');
+  if (sceneOwnsLocation) multiLocationAnchor = '';
+  if (settingCanon || scene.props.length || scene.refs.length) console.log(scene.log);
 
   // === LLM call to generate a creative image prompt ===
   let imagePrompt = customPrompt || card.appearance || '';
@@ -8914,7 +9016,7 @@ app.post('/api/generate-image', async (req, res) => {
     let raw = customPrompt.trim();
     const marker = 'Create the following scene: ';
     if (raw.indexOf(marker) > -1) raw = raw.slice(raw.indexOf(marker) + marker.length);
-    else if (/^Reference images? \d/.test(raw) && raw.indexOf('\n') > -1) raw = raw.slice(raw.indexOf('\n') + 1);
+    else if (/^(Reference images? \d|Person mapping:)/.test(raw) && raw.indexOf('\n') > -1) raw = raw.slice(raw.indexOf('\n') + 1);
     imagePrompt = sanitizeFluxPrompt(raw.trim());
     console.log('🔁 rerun_v1: saved prompt used verbatim, prompt writer skipped');
   }
@@ -8929,7 +9031,7 @@ app.post('/api/generate-image', async (req, res) => {
       const recentMessages = history
         .map(m => `${m.sender === 'user' ? (persona.name || 'User') : companionName}: ${m.text}`)
         .join('\n') || '(No conversation history yet)';
-      const locationAnchor = formatLocationAnchor(extractLatestLocation(history));
+      const locationAnchor = sceneOwnsLocation ? '' : formatLocationAnchor(extractLatestLocation(history));
       const cameraCard = getCompanion(companionName);
       const cameraEyeMatch = (cameraCard.systemPromptOverride || '').match(/\[CAMERA EYE\]\s*([\s\S]*?)(?=\n\[|$)/i);
       const userMsg = buildUserPhotoPromptUser({
@@ -8939,7 +9041,8 @@ app.post('/api/generate-image', async (req, res) => {
         userAppearance: userAppearanceFor(cameraCard, persona),
         recentMessages,
         locationAnchor,
-        sceneHint
+        sceneHint,
+        settingCanon
       });
       let generated = await callLLM(
         promptSystemMsg,
@@ -8959,7 +9062,7 @@ app.post('/api/generate-image', async (req, res) => {
         console.log('🚨 Camera prompt still garbage after retry, using appearance fallback');
         generated = userAppearanceFor(cameraCard, persona);
       }
-      imagePrompt = sanitizeFluxPrompt((generated || '').trim());
+      imagePrompt = sanitizeFluxPrompt(applyWriterPlace(scene, generated || '').trim());
       console.log('📷 Generated camera prompt:', imagePrompt);
       logImagePromptWriter();
     } catch (e) {
@@ -8980,7 +9083,7 @@ app.post('/api/generate-image', async (req, res) => {
         .map(m => `${m.sender === 'user' ? 'User' : companionName}: ${m.text}`)
         .join('\n') || '(No conversation history yet)';
 
-      const locationAnchor = formatLocationAnchor(extractLatestLocation(history));
+      const locationAnchor = sceneOwnsLocation ? '' : formatLocationAnchor(extractLatestLocation(history));
 
       const userMsg = (useSmallPrompt ? buildSoloImagePromptUserSmall : buildSoloImagePromptUser)({
         companionName,
@@ -8990,7 +9093,8 @@ app.post('/api/generate-image', async (req, res) => {
         customPrompt,
         recentMessages,
         locationAnchor,
-        sceneHint
+        sceneHint,
+        settingCanon: customPrompt ? settingCanonPlain : settingCanon
       });
 
       let generated = await callLLM(
@@ -9012,7 +9116,7 @@ app.post('/api/generate-image', async (req, res) => {
         console.log('🚨 Image prompt still garbage after retry, using appearance fallback');
         generated = card.appearance || customPrompt || '';
       }
-      imagePrompt = sanitizeFluxPrompt((generated || '').trim());
+      imagePrompt = sanitizeFluxPrompt(applyWriterPlace(scene, generated || '').trim());
       console.log('🎨 Generated image prompt:', imagePrompt);
       logImagePromptWriter();
     } catch (e) {
@@ -9128,7 +9232,8 @@ app.post('/api/generate-image', async (req, res) => {
                   locationAnchor: multiLocationAnchor,
                   sceneHint,
                   excludeUserName,
-                  refCounts
+                  refCounts,
+                  settingCanon
                 })
               : buildMultiImagePromptUser({
                   appearanceList,
@@ -9136,7 +9241,8 @@ app.post('/api/generate-image', async (req, res) => {
                   locationAnchor: multiLocationAnchor,
                   sceneHint,
                   excludeUserName,
-                  refCounts
+                  refCounts,
+                  settingCanon
                 });
 
             let generated = await callLLM(multiPromptSystem, [{ role: 'user', content: multiPromptUser }], imagePromptSettings, { maxTokens: 4000, temperature: 0.7, anthropicMeta: promptWriterMeta });
@@ -9153,7 +9259,7 @@ app.post('/api/generate-image', async (req, res) => {
             if (isRepetitiveGarbage(generated)) {
               nbPrompt = buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint, refCounts);
             } else {
-              nbPrompt = sanitizeFluxPrompt((generated || '').trim()) || buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint, refCounts);
+              nbPrompt = sanitizeFluxPrompt(applyWriterPlace(scene, generated || '').trim()) || buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint, refCounts);
             }
             console.log('🎨 Replicate LLM-generated multi-person prompt:', nbPrompt);
             logImagePromptWriter();
@@ -9163,9 +9269,15 @@ app.post('/api/generate-image', async (req, res) => {
           }
         }
 
-        const finalNbPrompt = customPrompt
+        // world_books_v1: the room / pet / garment photos ride after the face refs, numbered on from them
+        const sceneFaceCountRM = imageUrls.length;
+        const sceneRefsRM = settingRefs(scene, { dataDir: DATA_DIR, faceRefCount: sceneFaceCountRM });
+        for (const r of sceneRefsRM) imageUrls.push(fs.readFileSync(r.path));
+        if (sceneRefsRM.length) console.log(`📎 setting refs (Replicate group): ${sceneRefsRM.map(r => r.filename).join(', ')}`);
+        else if (scene.refs.length && sceneFaceCountRM >= FACE_REF_CUTOFF) console.log(`📎 setting refs (Replicate group): not sent — ${sceneFaceCountRM} face photos already, and the room photo is left out at ${FACE_REF_CUTOFF} or more`);
+        const finalNbPrompt = withSettingSentence((customPrompt && !rerunRaw)
           ? buildNanoBananaIdentityLockedPrompt(nbPrompt, names, imagePromptDeps, refCounts)
-          : `${describeReferenceSpans(names, refCounts)}\n${nbPrompt}`;
+          : `${describeReferenceSpans(names, refCounts)}\n${nbPrompt}`, settingRefSentence(sceneRefsRM, sceneFaceCountRM + 1));
         console.log('🎨 Final Replicate Nano Banana prompt:', finalNbPrompt);
 
         const nbLog = addLog({
@@ -9297,7 +9409,12 @@ app.post('/api/generate-image', async (req, res) => {
           throw new Error(`Reference image not found: ${cameraMode ? 'persona face reference' : (card.falReferenceImage || companionName)}`);
         }
         const who = cameraMode ? cameraSubjectName : companionName;
-        const finalNbPrompt = `${describeReferenceSpans([who], [refBuffers.length])} Create the following scene: ${imagePrompt}`;
+        // world_books_v1: the room / pet / garment photos ride after the face refs, numbered on from them
+        const sceneRefsRS = settingRefs(scene, { dataDir: DATA_DIR, faceRefCount: refBuffers.length });
+        const settingSentenceRS = settingRefSentence(sceneRefsRS, refBuffers.length + 1);
+        const finalNbPrompt = `${describeReferenceSpans([who], [refBuffers.length])}${settingSentenceRS ? ' ' + settingSentenceRS : ''} Create the following scene: ${imagePrompt}`;
+        for (const r of sceneRefsRS) refBuffers.push(fs.readFileSync(r.path));
+        if (sceneRefsRS.length) console.log(`📎 setting refs (Replicate solo): ${sceneRefsRS.map(r => r.filename).join(', ')}`);
         galleryImagePrompt = finalNbPrompt;
         attachFinalImagePromptLog(genLog, {
           finalPrompt: finalNbPrompt,
@@ -9536,7 +9653,8 @@ app.post('/api/generate-image', async (req, res) => {
                   locationAnchor: multiLocationAnchor,
                   sceneHint,
                   excludeUserName,
-                  refCounts
+                  refCounts,
+                  settingCanon
                 })
               : buildMultiImagePromptUser({
                   appearanceList,
@@ -9544,7 +9662,8 @@ app.post('/api/generate-image', async (req, res) => {
                   locationAnchor: multiLocationAnchor,
                   sceneHint,
                   excludeUserName,
-                  refCounts
+                  refCounts,
+                  settingCanon
                 });
 
             let generated = await callLLM(multiPromptSystem, [{ role: 'user', content: multiPromptUser }], imagePromptSettings, { maxTokens: 4000, temperature: 0.7, anthropicMeta: promptWriterMeta });
@@ -9561,7 +9680,7 @@ app.post('/api/generate-image', async (req, res) => {
             if (isRepetitiveGarbage(generated)) {
               nbPrompt = buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint, refCounts);
             } else {
-              nbPrompt = sanitizeFluxPrompt((generated || '').trim()) || buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint, refCounts);
+              nbPrompt = sanitizeFluxPrompt(applyWriterPlace(scene, generated || '').trim()) || buildSpecificMultiFallbackPrompt(names, appearanceList, recentMessages, sceneHint, refCounts);
             }
             console.log('🎨 LLM-generated multi-person prompt:', nbPrompt);
             logImagePromptWriter();
@@ -9582,9 +9701,18 @@ app.post('/api/generate-image', async (req, res) => {
         const nbT0 = Date.now();
 
         // Build a reference-aware prompt: prefix with explicit instruction + person-to-image mapping
-        const finalNbPrompt = customPrompt
+        // world_books_v1: the room / pet / garment photos ride after the face refs, numbered on from them
+        const sceneFaceCountFM = imageUrls.length;
+        const sceneRefsFM = [];
+        for (const r of settingRefs(scene, { dataDir: DATA_DIR, faceRefCount: sceneFaceCountFM })) {
+          const u = await uploadImagePathToFal(r.path, r.filename);
+          if (u) { imageUrls.push(u); sceneRefsFM.push(r); }
+        }
+        if (sceneRefsFM.length) console.log(`📎 setting refs (fal group): ${sceneRefsFM.map(r => r.filename).join(', ')}`);
+        else if (scene.refs.length && sceneFaceCountFM >= FACE_REF_CUTOFF) console.log(`📎 setting refs (fal group): not sent — ${sceneFaceCountFM} face photos already, and the room photo is left out at ${FACE_REF_CUTOFF} or more`);
+        const finalNbPrompt = withSettingSentence((customPrompt && !rerunRaw)
           ? buildNanoBananaIdentityLockedPrompt(nbPrompt, names, imagePromptDeps, refCounts)
-          : `${describeReferenceSpans(names, refCounts)}\n${nbPrompt}`;
+          : `${describeReferenceSpans(names, refCounts)}\n${nbPrompt}`, settingRefSentence(sceneRefsFM, sceneFaceCountFM + 1));
         console.log('🎨 Final Nano Banana prompt:', finalNbPrompt);
         attachFinalImagePromptLog(nbLog, {
           finalPrompt: finalNbPrompt,
@@ -9734,7 +9862,10 @@ app.post('/api/generate-image', async (req, res) => {
           return res.json({ error: `Reference image not found: ${cameraMode ? 'persona face reference' : (card.falReferenceImage || companionName)}` });
         }
         const who = cameraMode ? cameraSubjectName : companionName;
-        const finalNbPrompt = `${describeReferenceSpans([who], [facePaths.length])} Create the following scene: ${imagePrompt}`;
+        // world_books_v1: the room / pet / garment photos ride after the face refs, numbered on from them
+        const sceneRefsFS = settingRefs(scene, { dataDir: DATA_DIR, faceRefCount: facePaths.length });
+        const settingSentenceFS = settingRefSentence(sceneRefsFS, facePaths.length + 1);
+        const finalNbPrompt = `${describeReferenceSpans([who], [facePaths.length])}${settingSentenceFS ? ' ' + settingSentenceFS : ''} Create the following scene: ${imagePrompt}`;
         const nbEndpoint = 'fal-ai/nano-banana-2/edit';
 
         const nbLog = addLog({
@@ -9760,6 +9891,8 @@ app.post('/api/generate-image', async (req, res) => {
           const url = await uploadImagePathToFal(p, path.basename(p));
           if (url) refUrls.push(url);
         }
+        for (const r of sceneRefsFS) { const u = await uploadImagePathToFal(r.path, r.filename); if (u) refUrls.push(u); }
+        if (sceneRefsFS.length) console.log(`📎 setting refs (fal solo): ${sceneRefsFS.map(r => r.filename).join(', ')}`);
         if (!refUrls.length) {
           updateLog(nbLog.id, { direction: 'inbound', status: 'error', duration: Date.now() - nbT0, details: imagePromptLogDetails(nbLog, 'Reference upload failed') });
           return res.json({ error: 'Could not upload reference image for Nano Banana' });
