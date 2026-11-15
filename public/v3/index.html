@@ -10030,7 +10030,11 @@ function drawPicker(box){
     });
   }
 }
-function after(key){ if(key==='parlor'||key==='parlorj') drawTalk(); }
+function after(key){
+  if(key==='parlor'||key==='parlorj') drawTalk();
+  /* a lorebook's "Who it applies to": save it, and redraw a world book's entries so the owner chips follow */
+  if(key==='lore' && curBook){ saveBook({companions:(PICKED.lore||[]).slice()}); if(isWorldBook()) drawEntries(); }
+}
 function mountPickers(root){ $$('[data-picker]',root||document).forEach(drawPicker); }
 G.mountPickers=mountPickers;
 G.picked=function(k){return PICKED[k]||[];};
@@ -10330,16 +10334,27 @@ function openBook(b){
   drawEntries();
   if(G.setStageSub) G.setStageSub(b.name);
 }
+var lorePending=null;   /* {id, patch} — book fields waiting for the debounce, merged so a second edit never drops the first */
+function loreFlush(){
+  clearTimeout(loreSaveT);
+  if(!lorePending) return;
+  var p=lorePending; lorePending=null;
+  G.quiet(G.jsend('PUT','/api/lorebooks/'+encodeURIComponent(p.id),p.patch),null);
+}
 function saveBook(patch){
   if(!curBook) return;
   Object.assign(curBook,patch);
+  if(lorePending&&lorePending.id!==curBook.id) loreFlush();
+  if(!lorePending) lorePending={id:curBook.id,patch:{}};
+  Object.assign(lorePending.patch,patch);
   clearTimeout(loreSaveT);
-  loreSaveT=setTimeout(function(){
-    G.quiet(G.jsend('PUT','/api/lorebooks/'+encodeURIComponent(curBook.id),patch),null);
-  },800);
+  loreSaveT=setTimeout(loreFlush,800);
 }
 /* world_books_v1 — world books: places, pets, things, photos (see README → World books) */
 function isWorldBook(){ return !!curBook && String(curBook.type||'').toLowerCase()==='world'; }
+/* Put the cursor back in an entry's keyword box after a redraw. One tick late on purpose: the autofill guard marks a new
+   input read-only until it is focused, and it runs just after the redraw — focusing first left the box focused but dead. */
+function loreRefocus(i){ setTimeout(function(){ var card=$$('#entlist .ent')[i]; var next=card&&$('.kwbox input',card); if(next) next.focus(); },0); }
 function applyBookKind(){
   var w=isWorldBook();
   var pf=$('#bk-prompt-field'); if(pf) pf.classList.toggle('hidden',w);
@@ -10444,15 +10459,13 @@ function drawEntries(){
       var dupOn=isWorldBook()?kwDup(v,e.id):null;
       if(dupOn){
         this.value='';
-        G.modal({title:'"'+v+'" is already on '+dupOn.join(', '),body:'Two entries answering to the same plain word is a coin flip — the camera picks whichever entry is older. Use a phrase only this place owns, like "kitchen counter". "My …", "his …" and "our …" are fine to repeat; the owner sorts those out.',actions:[{label:'Add it anyway',fn:function(){ e.keywords=(e.keywords||[]).concat([v]); G.quiet(G.jsend('PUT','/api/lorebooks/'+encodeURIComponent(curBook.id)+'/entries/'+encodeURIComponent(e.id),{keywords:e.keywords}),null); drawEntries(); var card=$$('#entlist .ent')[i]; var next=card&&$('.kwbox input', card); if(next) next.focus(); }},{label:'Never mind',primary:true}]});
+        G.modal({title:'"'+v+'" is already on '+dupOn.join(', '),body:'Two entries answering to the same plain word is a coin flip — the camera picks whichever entry is older. Use a phrase only this place owns, like "kitchen counter". "My …", "his …" and "our …" are fine to repeat; the owner sorts those out.',actions:[{label:'Add it anyway',fn:function(){ e.keywords=(e.keywords||[]).concat([v]); G.quiet(G.jsend('PUT','/api/lorebooks/'+encodeURIComponent(curBook.id)+'/entries/'+encodeURIComponent(e.id),{keywords:e.keywords}),null); drawEntries(); loreRefocus(i); }},{label:'Never mind',primary:true}]});
         return;
       }
       e.keywords=(e.keywords||[]).concat([v]);
       G.quiet(G.jsend('PUT','/api/lorebooks/'+encodeURIComponent(curBook.id)+'/entries/'+encodeURIComponent(e.id),{keywords:e.keywords}),null);
       drawEntries();
-      var card=$$('#entlist .ent')[i];
-      var next=card&&$('.kwbox input', card);
-      if(next) next.focus();
+      loreRefocus(i);
     });
     d.addEventListener('click',function(ev){
       var rb=ev.target.closest('[data-kw]'); if(!rb) return;
