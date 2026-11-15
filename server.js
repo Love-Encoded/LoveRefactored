@@ -39,6 +39,9 @@ const bgSchedule = require('./lib/background-schedule');
 const {
   extractLatestLocation,
   formatLocationAnchor,
+  extractLatestWardrobe,
+  formatWardrobeAnchor,
+  buildShotSeed,
   sanitizeFluxPrompt,
   buildSpecificMultiFallbackPrompt,
   describeReferenceSpans,
@@ -1301,6 +1304,7 @@ let _anthropicTopPWarned = false;
 function anthropicThinkingPin(model) {
   const m = String(model || '');
   if (!/(sonnet|opus|haiku|fable|mythos)-5\b/.test(m)) return {};
+  if (/sonnet-5-5/.test(m)) return { thinking: { type: 'between_tools' } }; // sonnet-5-5 rejects 'disabled'; no tools sent so this never thinks. haiku-5-5 accepts 'disabled' (fall-through below).
   if (/opus-5-5|fable|mythos/.test(m)) {
     return { thinking: { type: 'adaptive' }, output_config: { effort: 'low' } };
   }
@@ -9021,6 +9025,16 @@ app.post('/api/generate-image', async (req, res) => {
     console.log('🔁 rerun_v1: saved prompt used verbatim, prompt writer skipped');
   }
 
+  // shot_seed_v1 + wardrobe anchor: every written photo gets a key-light direction and two face-safe imperfections rolled
+  // here (the writer is stateless, so it cannot vary them itself), plus the last message that says what someone is wearing.
+  // The small local writers (LM Studio) keep their own short prompts and get neither. A rerun skips the writer, so no roll.
+  const writerIsSmall = imagePromptSettings.provider === 'lmstudio';
+  const shotSeed = rerunRaw ? null : buildShotSeed();
+  const shotSeedText = shotSeed ? shotSeed.text : '';
+  const wardrobeAnchorFor = (msgs) => writerIsSmall ? '' : formatWardrobeAnchor(extractLatestWardrobe(msgs));
+  multiLocationAnchor += wardrobeAnchorFor(multiRecentHistory);
+  if (shotSeed) console.log(shotSeed.log);
+
   if (rerunRaw) {
     /* rerun_v1: imagePrompt is already final — nothing to write */
   } else if (mode === 'camera') {
@@ -9031,7 +9045,7 @@ app.post('/api/generate-image', async (req, res) => {
       const recentMessages = history
         .map(m => `${m.sender === 'user' ? (persona.name || 'User') : companionName}: ${m.text}`)
         .join('\n') || '(No conversation history yet)';
-      const locationAnchor = sceneOwnsLocation ? '' : formatLocationAnchor(extractLatestLocation(history));
+      const locationAnchor = (sceneOwnsLocation ? '' : formatLocationAnchor(extractLatestLocation(history))) + formatWardrobeAnchor(extractLatestWardrobe(history));
       const cameraCard = getCompanion(companionName);
       const cameraEyeMatch = (cameraCard.systemPromptOverride || '').match(/\[CAMERA EYE\]\s*([\s\S]*?)(?=\n\[|$)/i);
       const userMsg = buildUserPhotoPromptUser({
@@ -9042,7 +9056,8 @@ app.post('/api/generate-image', async (req, res) => {
         recentMessages,
         locationAnchor,
         sceneHint,
-        settingCanon
+        settingCanon,
+        shotSeed: shotSeedText
       });
       let generated = await callLLM(
         promptSystemMsg,
@@ -9083,7 +9098,7 @@ app.post('/api/generate-image', async (req, res) => {
         .map(m => `${m.sender === 'user' ? 'User' : companionName}: ${m.text}`)
         .join('\n') || '(No conversation history yet)';
 
-      const locationAnchor = sceneOwnsLocation ? '' : formatLocationAnchor(extractLatestLocation(history));
+      const locationAnchor = (sceneOwnsLocation ? '' : formatLocationAnchor(extractLatestLocation(history))) + wardrobeAnchorFor(history);
 
       const userMsg = (useSmallPrompt ? buildSoloImagePromptUserSmall : buildSoloImagePromptUser)({
         companionName,
@@ -9094,7 +9109,8 @@ app.post('/api/generate-image', async (req, res) => {
         recentMessages,
         locationAnchor,
         sceneHint,
-        settingCanon: customPrompt ? settingCanonPlain : settingCanon
+        settingCanon: customPrompt ? settingCanonPlain : settingCanon,
+        shotSeed: shotSeedText
       });
 
       let generated = await callLLM(
@@ -9242,7 +9258,8 @@ app.post('/api/generate-image', async (req, res) => {
                   sceneHint,
                   excludeUserName,
                   refCounts,
-                  settingCanon
+                  settingCanon,
+                  shotSeed: shotSeedText
                 });
 
             let generated = await callLLM(multiPromptSystem, [{ role: 'user', content: multiPromptUser }], imagePromptSettings, { maxTokens: 4000, temperature: 0.7, anthropicMeta: promptWriterMeta });
@@ -9663,7 +9680,8 @@ app.post('/api/generate-image', async (req, res) => {
                   sceneHint,
                   excludeUserName,
                   refCounts,
-                  settingCanon
+                  settingCanon,
+                  shotSeed: shotSeedText
                 });
 
             let generated = await callLLM(multiPromptSystem, [{ role: 'user', content: multiPromptUser }], imagePromptSettings, { maxTokens: 4000, temperature: 0.7, anthropicMeta: promptWriterMeta });

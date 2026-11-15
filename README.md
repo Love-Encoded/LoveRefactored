@@ -154,7 +154,7 @@ Opened from the header. Left rail, grouped. Every long field shows **where it la
 Nothing here runs behind your back except what you scheduled.
 
 - **Buffer** — unprocessed messages. **Flush now** or **flush every companion**.
-- **Decay** — preview exactly what the next run would fade; pin/protect first. **Run decay now** is explicit.
+- **Decay** — preview exactly what the next run would fade; pin/protect first. **Run decay now** is explicit, and answers "Decay is locked" until Tanevan runs with `TANEVAN_DECAY_UNLOCK=1`.
 - **Consolidation** — review overlapping pairs (galaxy lineage lines); apply merges.
 - **Scheduled processing** — inherit the global nightly default, custom time, or **off** (e.g. pets). Manual **Force reflections**. Global default is Settings → Memory server & schedule (typically **03:00**). The schedule **writes** reflections; live-chat **injection** is Character → Intermediate continuity (`reflectionsEnabled` + horizon chips).
 
@@ -368,6 +368,7 @@ Local TTS is **not** started by `./start.sh`. See **`voice/README.md`**.
 - Generating a clip from a gallery image accepts either local URL: `/api/gallery-image/<file>` or `/api/companions/<name>/gallery/<file>`.
 - LLM-authored scene prompts from recent chat (or the gallery scene hint), written for portrait-style generators (Nano Banana Pro / Flux). DALL·E / custom HTTP can be stored in Settings; **end-to-end generation is wired for ComfyUI, fal.ai, and Replicate**.
 - When the **image prompt writer** is **LM Studio**, solo and group shots use the small-model templates in **`lib/image-prompts-small.js`**: slot-based, no prose example to copy, explicit pronouns per person, clothing priority (current outfit, then the scene, then the default). A solo shot with a face reference (ComfyUI reference image, or any fal/Replicate face photo) tells the writer not to describe the face. With no reference, the solo template asks for eye color, face shape, complexion, and apparent age from the avatar description. Group shots always assume reference images. Every other prompt-writer provider keeps the full prompts in **`lib/image-prompts.js`**.
+- The full prompts follow a few fixed photo rules. Tattoos, scars and body details under clothing are left out of the prompt, so ink stays on skin and is never printed on a shirt. Clothing stated in the conversation wins over the scene, and the scene wins over the card's default outfit. Shots are cropped waist-up or tighter unless you ask for wider, and no footwear is described. Each photo gets a key-light direction and two small imperfections rolled by the server (off-centre framing, a blown-out window, a soft foreground object), none of which may touch a face or a hand. In two-person shots both faces stay turned toward the camera while their eyes share a point in the scene.
 - A multi-person shot you are not in tells the prompt writer not to name or describe you. If the draft still contains your name, it retries once and discards that draft if your name is still there.
 
 ### Spotify
@@ -497,7 +498,7 @@ data/briefs/archive/<key>/    # prior brief versions
 | **notable** | Colour |
 | **minor** | Trivia |
 
-Confidence 50–100. Intense memories get a small stored **intensity** (0–10) used in rerank (it is no longer smeared away into confidence and discarded). The same fact across sessions **boosts** confidence. **Decay** (`POST /decay`) lowers old unreinforced rows and deactivates those below a floor (**25**), plus a hard cull after **365** days unseen. Pinned, protected/sensitive, core, well-reinforced (`reinforcement_count > 6`), and recently seen (`< 30` days) rows are immune. Priority **demotion** can still move stale core/important rows down. **Nothing decays until you run it** (or a schedule you enabled).
+Confidence 50–100. Intense memories get a small stored **intensity** (0–10) used in rerank (it is no longer smeared away into confidence and discarded). The same fact across sessions **boosts** confidence. **Decay** (`POST /decay`) fades memories nobody has touched in a while: **1 / 2 / 3** confidence points for **30–90 / 90–180 / 180+** days dormant, half that when `reinforcement_count > 3`. "Touched" means reinforced by the pipeline, handed to the companion by chat recall, or newly created, whichever is latest. Confidence never drops below a floor of **50** (`TANEVAN_DECAY_FLOOR`), and decay never deactivates a memory or demotes its priority. Pinned, protected/sensitive, core, well-reinforced (`reinforcement_count > 6`), and recently touched (`< 30` days) rows are immune. **Nothing decays until you run it**, and a real run is locked until Tanevan is started with `TANEVAN_DECAY_UNLOCK=1`; the preview (dry run) always works.
 
 **Flags** (pin and suppress are mutually exclusive):
 
