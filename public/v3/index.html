@@ -1306,6 +1306,7 @@ button.m-stat:hover{background:var(--lamp-hi);border-color:var(--line-lit)}
 .book:hover{border-color:var(--line-lit);background:var(--lamp-hi)}
 .book .spine{background:var(--violet);align-self:stretch}
 .book.rel .spine{background:var(--who)}
+.book.world .spine{background:var(--me)}
 .book.off{opacity:.5}
 .book.off .spine{background:var(--ink-3)}
 .book .t{min-width:0}
@@ -1341,6 +1342,7 @@ button.m-stat:hover{background:var(--lamp-hi);border-color:var(--line-lit)}
   color:color-mix(in oklab,var(--violet) 55%,var(--ink))}
 .kw button{color:inherit;opacity:.6;font-size:12px;line-height:1}
 .kw button:hover{opacity:1}
+.kw.dup{background:color-mix(in oklab,var(--warn) 22%,var(--lamp-hi));color:color-mix(in oklab,var(--warn) 75%,var(--ink))}
 .kwbox{display:flex;flex-wrap:wrap;gap:5px;align-items:center;padding:7px 10px;
   border:1px solid var(--line-lit);border-radius:var(--r-sm);background:var(--void);
   min-height:36px}
@@ -2294,7 +2296,7 @@ html.kiosk #kiosk-eye.on{background:var(--live);opacity:1;box-shadow:0 0 10px va
       <img class="logo" src="/v3/logos/lrlogo.png" alt="" width="32" height="32" decoding="async">
       <div class="mark-text">
         <h1>Love Refactored</h1>
-        <span class="ver" id="app-ver">0.1.0-beta.5</span>
+        <span class="ver" id="app-ver">0.1.0-beta.6</span>
       </div>
       <button class="fold" id="fold" title="Collapse sidebar" aria-label="Collapse sidebar">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 3.5 5.5 8l4.5 4.5"/><path d="M2.6 3v10"/></svg>
@@ -3859,6 +3861,15 @@ html.kiosk #kiosk-eye.on{background:var(--live);opacity:1;box-shadow:0 0 10px va
             <input class="inp" id="bk-name" style="max-width:520px">
           </div>
           <div class="field">
+            <label for="bk-type">Kind</label>
+            <select class="inp" id="bk-type" style="max-width:520px">
+              <option value="storybook">Storybook — entries fire by keyword into chat</option>
+              <option value="relationship">Relationship — the same, kept for the two of you</option>
+              <option value="world">World — a house: its places, pets, and things. Read by the camera, never by the chat</option>
+            </select>
+            <p class="hint hidden" id="bk-world-hint">A world book is a house. "Who it applies to" is who lives here. Each entry is a place, a pet, or a thing, and can carry a photo. Nothing in a world book is ever injected into chat — it only shapes photos.</p>
+          </div>
+          <div class="field" id="bk-prompt-field">
             <label for="bk-prompt">Book prompt <span class="inh set">always on</span></label>
             <p class="hint">Injected into the system prompt whenever this book is active — before any keyword matching. This is the part that costs you tokens on every single turn, so it belongs in the cache block, and it is.</p>
             <textarea class="inp" id="bk-prompt" rows="4" style="max-width:720px"></textarea>
@@ -6763,7 +6774,7 @@ var STEPS=[
  {k:'tellsTics', prop:'tellsTics', title:'Tells & Tics', intro:'Do they pick their nails when they\'re nervous? Make tea as a ritual? Doom-scroll at night? The small physical habits that give them away.', ph:'Cracks knuckles before saying something true. Reorganises whatever\'s on the table when uncomfortable. Hums without noticing…'},
  {k:'exampleMessages', prop:'exampleMessages', title:'Example Messages', intro:'A few sample lines in their actual voice. The model imitates what it sees here, so make these sound exactly like them — wrap actions in *asterisks*.', ph:'*doesn\'t look up* you\'re up late again. sit down, i\'m not going to say anything about it.\n\nno. absolutely not. …okay, show me.'},
  {k:'cameraEye', prop:'cameraEye', title:'Camera Eye', intro:'How they see the world and document it — what they notice first, what they\'d photograph, what they\'d never bother to.', ph:'Photographs hands, never faces. Notices what\'s broken in a room before what\'s beautiful. Would shoot the parking lot at dusk over the sunset…'},
- {k:'voiceAnchor', prop:'voiceAnchor', title:'Group Chat Profile', intro:'A shortened version of their backstory and personality — condensed identity for group chat and voice calls: personality, key facts, speech style. When filled in, group chat uses only this profile instead of the full card.', ph:'Evan, 34, musician. Loud, warm, allergic to being handled. Short sentences, swears, calls people by nicknames…'},
+ {k:'voiceAnchor', prop:'voiceAnchor', title:'Group Chat Profile', intro:'A shortened version of their backstory and personality — condensed identity for group chat and voice calls: personality, key facts, speech style. When filled in, group chat uses only this profile instead of the full card.', ph:'Riley, 29, bartender. Dry, warm, hates small talk. Short sentences, teases, remembers every regular by name…'},
  {k:'speechPatterns', prop:'speechPatterns', title:'Speech Patterns', intro:'Reinforced at the very end of 1:1 chat — the last thing the model reads. Use for capitalisation rules, accent conventions, filler words, sentence structure, anti-blend locks.', ph:'lowercase always. no em dashes. "yeah nah" not "no". never says "I understand"…'},
  {k:'responseDirective', prop:'responseDirective', title:'Response Directive', intro:'Injected as the LAST instruction before the model writes. Extremely high influence. Use for speech patterns, length limits, style rules — this is your most powerful knob for voice control.', ph:'Keep it under 120 words unless asked for more. One action beat max per reply. Never end on a question…'},
  {k:'voiceCallDirective', prop:'voiceCallDirective', title:'Voice Call Directive', intro:'Injected at the end of the system prompt during voice calls only — text chat is unaffected. Use for call-specific framing.', ph:'This is a phone call. Keep it short, no narration, no asterisks. Let silences happen…'},
@@ -6771,7 +6782,7 @@ var STEPS=[
  {k:'faces', title:'Their face', intro:'Reference photos for the image generator — up to four. One straight on, one at three-quarters, one in different light. It combines them into a single face, so the more angles the truer the likeness. Optional; you can add these from the card later.'},
  {k:'userPersonaOverride', prop:'userPersonaOverride', title:'User Persona', intro:'How THIS companion sees you, replacing your global persona — useful when different characters should know different sides of you. Leave empty to use Settings → User Persona.', ph:'Knows me as the person who hired him. Doesn\'t know about…'},
  {k:'bring', prop:'backstory', title:'Bring them over', intro:'Paste the whole card — backstory, personality, example lines, all of it. It lands in Backstory. Split it into sections from their card later, or don\'t.', ph:'Paste everything here…'},
- {k:'custom', prop:'systemPromptOverride', title:'Write the prompt yourself', intro:'This becomes their entire system prompt. Backstory, Personality, Response Directive, Speech Patterns and Group Chat Profile are all bypassed — memory and your persona still come along. You\'re driving.', ph:'You are Evan. 34, musician, allergic to being handled…'},
+ {k:'custom', prop:'systemPromptOverride', title:'Write the prompt yourself', intro:'This becomes their entire system prompt. Backstory, Personality, Response Directive, Speech Patterns and Group Chat Profile are all bypassed — memory and your persona still come along. You\'re driving.', ph:'You are Riley. 29, bartender, hates small talk…'},
  {k:'first', title:'Say something first', intro:'The opening line they send when you walk in. Write it in their voice — this is the first thing that will ever be true about them.', ph:'*doesn\'t look up* you\'re up late again. sit down, i\'m not going to say anything about it.'}
 ];
 /* pages: fields grouped so the walk is six screens, not twenty */
@@ -7304,6 +7315,7 @@ function galPanelHTML(){
     '<div class="lf-head"><label>Scene</label><span class="where">image prompt</span></div>'+
     '<p class="hint">Describe what you want to see. Left empty, they pick something themselves.</p>'+
     '<div class="lf-box"><textarea data-gal="scene" placeholder="Leave empty to let them choose"></textarea></div>'+
+    '<div data-gal="places" style="display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s2)"></div>'+
   '</div></div>'+
   '<div class="gal-actions">'+
     '<button class="chip" data-gal="me" aria-pressed="false">Include me · couple photo</button>'+
@@ -7325,6 +7337,28 @@ function galDraw(host){
   q('select').setAttribute('aria-pressed',String(GAL.select));
   q('bulk').hidden=!GAL.select;
   q('selcount').textContent=Object.keys(GAL.sel).length+' selected';
+  /* world_books_v1: one chip per place in this companion's world book(s) — click to name it in the scene */
+  (function(){
+    var box=q('places'), c=G.cur(); if(!box) return;
+    if(!c){ box.innerHTML=''; return; }
+    G.quiet(G.jget('/api/lorebooks'), []).then(function(books){
+      var names=[];
+      (Array.isArray(books)?books:[]).forEach(function(b){
+        if(!b||b.enabled===false||String(b.type||'').toLowerCase()!=='world'||!Array.isArray(b.entries)) return;
+        var who=(b.companions||[]).filter(Boolean); if(who.length&&who.indexOf(c.name)<0) return;
+        b.entries.forEach(function(e){
+          if(!e||e.enabled===false||(e.kind&&e.kind!=='place')) return;
+          var k=(Array.isArray(e.keywords)&&e.keywords[0])||e.name; if(k&&names.indexOf(k)<0) names.push(k);
+        });
+      });
+      box.innerHTML=names.map(function(nm){ return '<button type="button" class="chip" data-place="'+G.escT(nm)+'">'+G.escT(nm)+'</button>'; }).join('');
+      $$('[data-place]',box).forEach(function(btn){ btn.addEventListener('click',function(){
+        var ta=q('scene'), nm=btn.dataset.place, v=ta.value.trim();
+        if(v.toLowerCase().indexOf(nm.toLowerCase())===0) return;
+        ta.value=nm+(v?', '+v:''); ta.focus();
+      }); });
+    });
+  })();
   var grid=q('grid');
   renderGallery(grid, list, {headClass:host.dataset.galHead||'gal-month', onChange:galRefreshAll});
   if(!list.length && GAL.files.length) grid.innerHTML='<p class="emptyish">'+(GAL.showPrivate?'Nothing on the private shelf.':'Nothing matches that filter.')+'</p>';
@@ -8425,7 +8459,6 @@ function galRender(c){ if(G.galRender) G.galRender(c); }
 
 /* ═══════════ BOOT ═══════════ */
 Object.keys(F).forEach(function(k){ renderFields('#fields-'+k, F[k]); });
-flRender();
 asmRender();
 injRender({});
 if(G.cur()) hydrateCard(G.cur());
@@ -10264,7 +10297,7 @@ function drawBooks(){
       var row=document.createElement('div');
       row.style.cssText='display:flex;align-items:center;gap:var(--s2)';
       var btn=document.createElement('button');
-      btn.className='book'+(b.enabled?'':' off')+(String(b.type).toLowerCase()==='relationship'?' rel':'');
+      btn.className='book'+(b.enabled?'':' off')+(String(b.type).toLowerCase()==='relationship'?' rel':'')+(String(b.type).toLowerCase()==='world'?' world':'');
       btn.style.flex='1'; btn.style.minWidth='0';
       btn.innerHTML='<span class="spine"></span>'+
         '<span class="t"><b>'+esc(b.name)+'</b><span>'+esc(sub)+'</span></span>'+
@@ -10289,6 +10322,8 @@ function openBook(b){
   $('#lore-book').classList.remove('hidden');
   $('#bk-name').value=b.name||'';
   $('#bk-prompt').value=b.prompt||'';
+  var bkt=$('#bk-type'); if(bkt) bkt.value=String(b.type||'storybook').toLowerCase();
+  applyBookKind();
   $('#bk-n').textContent=(b.entries||[]).length+' / 100';
   PICKED.lore=(b.companions||[]).slice();
   mountPickers($('#lore-book'));
@@ -10303,9 +10338,38 @@ function saveBook(patch){
     G.quiet(G.jsend('PUT','/api/lorebooks/'+encodeURIComponent(curBook.id),patch),null);
   },800);
 }
+/* world_books_v1 — world books: places, pets, things, photos (see README → World books) */
+function isWorldBook(){ return !!curBook && String(curBook.type||'').toLowerCase()==='world'; }
+function applyBookKind(){
+  var w=isWorldBook();
+  var pf=$('#bk-prompt-field'); if(pf) pf.classList.toggle('hidden',w);
+  var wh=$('#bk-world-hint'); if(wh) wh.classList.toggle('hidden',!w);
+}
+function worldOwnerList(owner){ return (Array.isArray(owner)?owner:(owner==null||owner===''?[]:[owner])).map(String); }
+function worldOwnerChips(owner){
+  var cur=worldOwnerList(owner);
+  var names=((curBook&&curBook.companions)||[]).filter(Boolean).slice();
+  cur.forEach(function(o){ if(o!=='user'&&o!=='shared'&&names.indexOf(o)<0) names.push(o); });
+  var opts=[['user','You']].concat(names.map(function(x){return [x,x];}));
+  if(cur.indexOf('shared')>-1) opts.push(['shared','Shared (whole house)']);
+  return opts.map(function(p){ return '<button type="button" class="chip" data-owner="'+esc(p[0])+'" aria-pressed="'+(cur.indexOf(p[0])>-1?'true':'false')+'">'+esc(p[1])+'</button>'; }).join('');
+}
+function placeStripHTML(files){
+  files=files||[]; var max=2;
+  var thumbs=files.map(function(f,i){
+    var url='/api/lorebook-ref/'+encodeURIComponent(f);
+    return '<span class="fs-thumb" style="background-image:url(&quot;'+esc(url)+'&quot;)" title="'+esc(f)+'"><span class="fs-n">'+(i+1)+'</span><button type="button" class="fs-x" data-fs-del="'+esc(f)+'" aria-label="Remove photo">×</button></span>';
+  }).join('');
+  var full=files.length>=max;
+  var add='<button type="button" class="fs-add" data-fs-add'+(full?' disabled':'')+' title="'+(full?'Remove one to add another':'Add a photo')+'">+<small>'+(files.length?'add':'photo')+'</small></button>';
+  var empty=files.length?'':'<span class="fs-empty">No photo yet. One wide shot of the empty room is all it takes.</span>';
+  var count='<span class="fs-count">'+files.length+' of '+max+'</span>';
+  return thumbs+add+empty+count;
+}
 (function(){
   var bn=$('#bk-name'); if(bn) bn.addEventListener('input',function(){ saveBook({name:this.value}); });
   var bp=$('#bk-prompt'); if(bp) bp.addEventListener('input',function(){ saveBook({prompt:this.value}); });
+  var bt=$('#bk-type'); if(bt) bt.addEventListener('change',function(){ saveBook({type:this.value}); applyBookKind(); drawEntries(); });
 })();
 function drawEntries(){
   var box=$('#entlist'); if(!box) return;
@@ -10317,21 +10381,49 @@ function drawEntries(){
   box.innerHTML='';
   var entries=(curBook&&curBook.entries)||[];
   if(!entries.length){ box.innerHTML='<p class="emptyish">No entries yet.</p>'; return; }
+  var kwOwners={};
+  function namedOwners(x){ return (Array.isArray(x.owner)?x.owner:(x.owner==null||x.owner===''?[]:[x.owner])).map(String).filter(function(o){return o!=='user'&&o!=='shared';}); }
+  if(isWorldBook()) entries.forEach(function(x){ (Array.isArray(x.keywords)?x.keywords:[]).forEach(function(k){ var nk=String(k).trim().toLowerCase(); if(!nk||/^(my|his|her|their|our)\b/.test(nk)) return; (kwOwners[nk]=kwOwners[nk]||[]).push({id:x.id,name:x.name||x.keywords[0]||'another entry',owners:namedOwners(x)}); }); });
+  function kwDup(k,id){
+    var nk=String(k).trim().toLowerCase(), mine=null;
+    entries.forEach(function(x){ if(x.id===id) mine=namedOwners(x); });
+    var o=(kwOwners[nk]||[]).filter(function(h){ if(h.id===id) return false; if(!mine||!mine.length||!h.owners.length) return true; return mine.some(function(n){return h.owners.indexOf(n)>-1;}); }).map(function(h){return h.name;});
+    return o.length?o:null;
+  }
   entries.forEach(function(e,i){
     var d=document.createElement('div'); d.className='ent'+(openIds[e.id]?' open':'');
     var kws=Array.isArray(e.keywords)?e.keywords:[];
     var keys=kws.slice(0,3).map(function(k){return '<span class="kw">'+esc(k)+'</span>';}).join('');
     var more=kws.length>3?'<span class="more">+'+(kws.length-3)+'</span>':'';
+    var world=isWorldBook(), kind=String(e.kind||'place');
+    var title=(world&&e.name)?'<b style="margin-right:var(--s2)">'+esc(e.name)+'</b>':'';
+    var flag=(world&&e.isDefault)?'<span class="kw" style="opacity:.6">default</span>':'';
+    var kwLabel=world?'Names it answers to':'Trigger keywords';
+    var kwHint=world?'<p class="hint" style="margin:0 0 6px">The first one is its public name — the companion sees it and the studio picker shows it. Lead with the plain noun. A plain word can sit on several entries only if each has a different person who calls it theirs — "bed" on every bedroom is fine, the camera picks whoever is in the photo. The same word on two shared rooms is a coin flip.</p>':'';
+    var prLabel=world?'How it looks':'Entry prompt';
+    var prHint=world?'<p class="hint" style="margin:0 0 6px">Big shapes only — what a camera catches from any angle: bed, walls, window, floor. Materials and layout. No lighting, no time of day. About 100 words. Clutter goes in the photo.</p>':'';
+    var worldTop=!world?'':
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:var(--s3);margin-bottom:var(--s4)">'+
+        '<label class="lbl" style="display:block">Kind<select class="inp w-kind" style="margin-top:6px">'+['place','pet','object','npc','clothing'].map(function(k){return '<option value="'+k+'"'+(k===kind?' selected':'')+'>'+k+'</option>';}).join('')+'</select></label>'+
+        '<label class="lbl" style="display:block">Name<input class="inp w-name" style="margin-top:6px" value="'+esc(e.name||'')+'" placeholder="the bedroom"></label>'+
+        '<div class="lbl" style="display:block">Who calls it mine <span style="letter-spacing:0;text-transform:none;font-family:inherit;color:var(--ink-3)">— whoever says "my" about it and means this one. Not who is allowed in it.</span><div class="w-owner" style="display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:6px">'+worldOwnerChips(e.owner)+'</div></div>'+
+      '</div>'+
+      (kind==='place'?'<label style="display:flex;align-items:center;gap:var(--s2);margin-bottom:var(--s4);font-size:12px;color:var(--ink-2)"><input type="checkbox" class="w-default"'+(e.isDefault?' checked':'')+'> Default place — where a photo lands when nobody said where, for anyone with no room of their own here</label>':'');
+    var worldPhotos=!world?'':
+      '<label class="lbl" style="display:block;margin:var(--s4) 0 6px">Photo</label>'+
+      '<p class="hint" style="margin:0 0 6px">The photo is canon — the camera matches its layout, furniture, and surfaces exactly. Empty room, wide, from a corner, even light, no people.</p>'+
+      '<div class="facestrip" data-fs-kind="place">'+placeStripHTML(e.refs||[])+'</div>';
     d.innerHTML='<button class="ent-h"><span class="no">'+String(i+1).padStart(2,'0')+'</span>'+
-      '<span class="keys">'+(keys||'<span class="kw">no keywords</span>')+more+'</span><span class="tw">▸</span></button>'+
-      '<div class="ent-body">'+
-        '<label class="lbl" style="display:block;margin-bottom:6px">Trigger keywords</label>'+
+      '<span class="keys">'+title+(keys||'<span class="kw">no keywords</span>')+more+flag+'</span><span class="tw">▸</span></button>'+
+      '<div class="ent-body">'+worldTop+
+        '<label class="lbl" style="display:block;margin-bottom:6px">'+kwLabel+'</label>'+kwHint+
         '<div class="kwbox">'+kws.map(function(k){
-          return '<span class="kw">'+esc(k)+'<button aria-label="Remove" data-kw="'+esc(k)+'">×</button></span>';}).join('')+
+          var dup=isWorldBook()?kwDup(k,e.id):null;
+          return '<span class="kw'+(dup?' dup':'')+'"'+(dup?' title="Also on: '+esc(dup.join(', '))+'. A plain word shared by two entries is a coin flip."':'')+'>'+esc(k)+(dup?' ⚠':'')+'<button aria-label="Remove" data-kw="'+esc(k)+'">×</button></span>';}).join('')+
           '<input placeholder="add a keyword, press enter"></div>'+
-        '<label class="lbl" style="display:block;margin:var(--s4) 0 6px">Entry prompt</label>'+
+        '<label class="lbl" style="display:block;margin:var(--s4) 0 6px">'+prLabel+'</label>'+prHint+
         '<textarea class="inp" rows="5">'+esc(e.prompt||'')+'</textarea>'+
-        '<div class="cc'+((e.prompt||'').length>4000?' near':'')+'">'+n((e.prompt||'').length)+' / 5,000</div>'+
+        '<div class="cc'+((e.prompt||'').length>4000?' near':'')+'">'+n((e.prompt||'').length)+' / 5,000</div>'+worldPhotos+
         '<div style="margin-top:var(--s3)"><button class="btn ghost tiny" data-ent-del="'+esc(e.id)+'" data-ent-book="'+esc(curBook.id)+'">Delete entry</button></div>'+
       '</div>';
     $('.ent-h',d).addEventListener('click',function(){ d.classList.toggle('open'); });
@@ -10349,6 +10441,12 @@ function drawEntries(){
       if(ev.key!=='Enter') return;
       ev.preventDefault();
       var v=this.value.trim(); if(!v) return;
+      var dupOn=isWorldBook()?kwDup(v,e.id):null;
+      if(dupOn){
+        this.value='';
+        G.modal({title:'"'+v+'" is already on '+dupOn.join(', '),body:'Two entries answering to the same plain word is a coin flip — the camera picks whichever entry is older. Use a phrase only this place owns, like "kitchen counter". "My …", "his …" and "our …" are fine to repeat; the owner sorts those out.',actions:[{label:'Add it anyway',fn:function(){ e.keywords=(e.keywords||[]).concat([v]); G.quiet(G.jsend('PUT','/api/lorebooks/'+encodeURIComponent(curBook.id)+'/entries/'+encodeURIComponent(e.id),{keywords:e.keywords}),null); drawEntries(); var card=$$('#entlist .ent')[i]; var next=card&&$('.kwbox input', card); if(next) next.focus(); }},{label:'Never mind',primary:true}]});
+        return;
+      }
       e.keywords=(e.keywords||[]).concat([v]);
       G.quiet(G.jsend('PUT','/api/lorebooks/'+encodeURIComponent(curBook.id)+'/entries/'+encodeURIComponent(e.id),{keywords:e.keywords}),null);
       drawEntries();
@@ -10362,6 +10460,48 @@ function drawEntries(){
       G.quiet(G.jsend('PUT','/api/lorebooks/'+encodeURIComponent(curBook.id)+'/entries/'+encodeURIComponent(e.id),{keywords:e.keywords}),null);
       drawEntries();
     });
+    if(world){
+      var wput=function(patch){ return G.quiet(G.jsend('PUT','/api/lorebooks/'+encodeURIComponent(curBook.id)+'/entries/'+encodeURIComponent(e.id),patch),null); };
+      var wk=$('.w-kind',d); if(wk) wk.addEventListener('change',function(){
+        e.kind=this.value;
+        if(e.kind!=='place'&&e.isDefault){ e.isDefault=false; wput({kind:e.kind,isDefault:false}); } else wput({kind:e.kind});
+        drawEntries();
+      });
+      var wn=$('.w-name',d), wnT=null; if(wn) wn.addEventListener('input',function(){ e.name=this.value; clearTimeout(wnT); wnT=setTimeout(function(){ wput({name:e.name}); },800); });
+      var wo=$('.w-owner',d); if(wo) wo.addEventListener('click',function(ev){
+        var b=ev.target.closest('[data-owner]'); if(!b) return;
+        var cur=worldOwnerList(e.owner), k=b.dataset.owner, i=cur.indexOf(k);
+        if(i>-1) cur.splice(i,1); else cur.push(k);
+        e.owner=cur.length?cur:null;
+        b.setAttribute('aria-pressed',String(i===-1));
+        wput({owner:cur});
+      });
+      var wd=$('.w-default',d); if(wd) wd.addEventListener('change',function(){
+        e.isDefault=this.checked;
+        if(e.isDefault) (curBook.entries||[]).forEach(function(x){ if(x!==e) x.isDefault=false; });
+        wput({isDefault:e.isDefault});
+        drawEntries();
+      });
+      d.addEventListener('click',function(ev){
+        var add=ev.target.closest('[data-fs-add]');
+        if(add){
+          if(add.disabled) return;
+          G.pickFile('image/*').then(function(file){
+            if(!file) return;
+            return G.upload('/api/lorebooks/'+encodeURIComponent(curBook.id)+'/entries/'+encodeURIComponent(e.id)+'/ref','image',file)
+              .then(function(r){ e.refs=Array.isArray(r.files)?r.files:(e.refs||[]); drawEntries(); });
+          }).catch(function(err){ G.fail('Photo upload failed',err); });
+          return;
+        }
+        var rm=ev.target.closest('[data-fs-del]');
+        if(rm){
+          var fn=rm.dataset.fsDel;
+          G.jsend('DELETE','/api/lorebooks/'+encodeURIComponent(curBook.id)+'/entries/'+encodeURIComponent(e.id)+'/ref/'+encodeURIComponent(fn))
+            .then(function(r){ e.refs=Array.isArray(r.files)?r.files:(e.refs||[]).filter(function(x){return x!==fn;}); drawEntries(); })
+            .catch(function(err){ G.fail('Could not remove photo',err); });
+        }
+      });
+    }
     box.appendChild(d);
   });
 }
@@ -12024,7 +12164,7 @@ document.addEventListener('click',function(e){
   var add=e.target.closest('[data-fs-add]'), del=e.target.closest('[data-fs-del]');
   if(!add&&!del) return;
   var host=(add||del).closest('.facestrip'); if(!host) return;
-  var kind=host.dataset.fsKind||'companion'; if(kind==='onboard'||kind==='altform') return; /* onboarding and the alternate form own their own strips */
+  var kind=host.dataset.fsKind||'companion'; if(kind==='onboard'||kind==='altform'||kind==='place') return; /* onboarding, the alternate form and world-book entries own their own strips */
   var needCard=(kind==='companion'||kind==='override');
   var c=needCard?G.cur():null; if(needCard&&!c) return;
   if(add){
