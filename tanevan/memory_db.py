@@ -27,6 +27,40 @@ def _get_shared_embedder(companion_name=""):
                 _SHARED_EMBEDDER = SentenceTransformer(EMBEDDING_MODEL)
     return _SHARED_EMBEDDER
 from db_time import ensure_utc, parse_db_datetime, sqlite_utc_str
+
+
+class _LockedConnection(sqlite3.Connection):
+    """shared_conn_lock_v1: one SQLite connection per companion is shared by every
+    request thread AND the pipeline thread. sqlite3 does not make that safe on its
+    own: two threads writing in the same instant raise "bad parameter or other API
+    misuse" / "cannot commit - no transaction is active", the request dies with a
+    500, and the message never reaches the buffer. Every statement and every commit
+    now takes this lock, so they happen one at a time. Methods that write and then
+    read back (the buffer) hold `lr_lock` for the whole operation."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.lr_lock = _threading.RLock()
+
+    def execute(self, *args, **kwargs):
+        with self.lr_lock:
+            return super().execute(*args, **kwargs)
+
+    def executemany(self, *args, **kwargs):
+        with self.lr_lock:
+            return super().executemany(*args, **kwargs)
+
+    def executescript(self, *args, **kwargs):
+        with self.lr_lock:
+            return super().executescript(*args, **kwargs)
+
+    def commit(self):
+        with self.lr_lock:
+            return super().commit()
+
+    def rollback(self):
+        with self.lr_lock:
+            return super().rollback()
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import json
@@ -364,7 +398,7 @@ class MemoryDB:
         chroma_path = os.path.join(companion_dir, "chroma_db")
 
         # Initialize SQLite
-        self.db = sqlite3.connect(sqlite_path, check_same_thread=False)
+        self.db = sqlite3.connect(sqlite_path, check_same_thread=False, factory=_LockedConnection)  # shared_conn_lock_v1
         self.db.row_factory = sqlite3.Row
         self._create_tables()
         # Retention on startup — prune_audit_log never raises, so this can't block DB init
@@ -671,38 +705,42 @@ class MemoryDB:
     def buffer_message(self, role, content, timestamp=None):
         """Add a message to the conversation buffer."""
         ts = normalize_conversation_timestamp(timestamp) or ""
-        self.db.execute(
-            "INSERT INTO conversation_buffer (role, content, timestamp) VALUES (?, ?, ?)",
-            (role, content, ts)
-        )
-        self.db.commit()
+        with self.db.lr_lock:  # shared_conn_lock_v1
+            self.db.execute(
+                "INSERT INTO conversation_buffer (role, content, timestamp) VALUES (?, ?, ?)",
+                (role, content, ts)
+            )
+            self.db.commit()
 
     def replace_last_buffer_message(self, role, content, timestamp=None):
         """reroll_sync_v1: overwrite the most recent buffered message with this role.
         Returns the row id that was replaced, or None if there was none to replace."""
-        row = self.db.execute(
-            "SELECT id FROM conversation_buffer WHERE role = ? ORDER BY id DESC LIMIT 1", (role,)
-        ).fetchone()
-        if not row:
-            return None
-        ts = normalize_conversation_timestamp(timestamp) or ""
-        if ts:
-            self.db.execute("UPDATE conversation_buffer SET content = ?, timestamp = ? WHERE id = ?", (content, ts, row["id"]))
-        else:
-            self.db.execute("UPDATE conversation_buffer SET content = ? WHERE id = ?", (content, row["id"]))
-        self.db.commit()
-        return row["id"]
+        with self.db.lr_lock:  # shared_conn_lock_v1
+            row = self.db.execute(
+                "SELECT id FROM conversation_buffer WHERE role = ? ORDER BY id DESC LIMIT 1", (role,)
+            ).fetchone()
+            if not row:
+                return None
+            ts = normalize_conversation_timestamp(timestamp) or ""
+            if ts:
+                self.db.execute("UPDATE conversation_buffer SET content = ?, timestamp = ? WHERE id = ?", (content, ts, row["id"]))
+            else:
+                self.db.execute("UPDATE conversation_buffer SET content = ? WHERE id = ?", (content, row["id"]))
+            self.db.commit()
+            return row["id"]
 
     def get_buffer(self):
         """Get all messages in the current buffer."""
-        rows = self.db.execute(
-            "SELECT id, role, content, timestamp FROM conversation_buffer ORDER BY id"
-        ).fetchall()
+        with self.db.lr_lock:  # shared_conn_lock_v1
+            rows = self.db.execute(
+                "SELECT id, role, content, timestamp FROM conversation_buffer ORDER BY id"
+            ).fetchall()
         return [dict(r) for r in rows]
 
     def get_buffer_count(self):
         """How many messages are in the buffer."""
-        row = self.db.execute("SELECT COUNT(*) as cnt FROM conversation_buffer").fetchone()
+        with self.db.lr_lock:  # shared_conn_lock_v1
+            row = self.db.execute("SELECT COUNT(*) as cnt FROM conversation_buffer").fetchone()
         return row["cnt"]
 
     def clear_buffer(self, up_to_id=None):
@@ -712,16 +750,17 @@ class MemoryDB:
         arrived WHILE the pipeline was running survive for the next run.
         None = full wipe (legacy behaviour, manual resets only).
         """
-        if up_to_id is None:
-            self.db.execute("DELETE FROM conversation_buffer")
-        else:
-            self.db.execute(
-                "DELETE FROM conversation_buffer WHERE id <= ?", (up_to_id,)
-            )
-        self.db.commit()
-        survivors = self.db.execute(
-            "SELECT COUNT(*) as cnt FROM conversation_buffer"
-        ).fetchone()["cnt"]
+        with self.db.lr_lock:  # shared_conn_lock_v1
+            if up_to_id is None:
+                self.db.execute("DELETE FROM conversation_buffer")
+            else:
+                self.db.execute(
+                    "DELETE FROM conversation_buffer WHERE id <= ?", (up_to_id,)
+                )
+            self.db.commit()
+            survivors = self.db.execute(
+                "SELECT COUNT(*) as cnt FROM conversation_buffer"
+            ).fetchone()["cnt"]
         if survivors:
             print(f"   ↳ buffer cleared up to id {up_to_id}; {survivors} mid-run message(s) preserved for next cycle")
         return survivors

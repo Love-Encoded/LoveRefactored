@@ -188,6 +188,20 @@ ANTHROPIC_API_KEY = _load_anthropic_key()
 
 app = Flask(__name__)
 
+
+@app.errorhandler(Exception)
+def _json_error(err):
+    """json_errors_v1: when a route crashes, answer in JSON with the real reason.
+    Flask's default is an HTML error page, which the Node side can only report as
+    "Unexpected token '<', \"<!doctype \"... is not valid JSON" — true, and useless."""
+    from werkzeug.exceptions import HTTPException
+    if isinstance(err, HTTPException):
+        return jsonify({"error": f"{err.code} {err.name}: {err.description}"}), err.code
+    import traceback
+    traceback.print_exc()
+    return jsonify({"error": f"{type(err).__name__}: {err}"}), 500
+
+
 # Per-companion database cache
 _db_cache = {}
 _db_lock = threading.Lock()

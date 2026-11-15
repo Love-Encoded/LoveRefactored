@@ -13697,13 +13697,32 @@ $('#cs-auto').addEventListener('click',function(){
   var close_=G.modal({title:'Auto session',html:'<span>They take turns on the page without you — '+esc(names.map(function(n){ return who(n).name; }).join(', '))+'. Each round is one contribution.</span><div class="field" style="margin-top:var(--s3)"><label>Rounds</label><input class="inp" id="cs-rounds" type="number" min="1" max="10" value="3"></div>',
     actions:[{label:'Start',primary:true,keep:true,fn:function(){
       var n=Math.max(1,Math.min(10,parseInt(($('#cs-rounds')||{}).value,10)||3)); close_();
-      BUSY=true; var stop=typing(names[0]); $('#cs-auto').disabled=true;
-      G.jsend('POST',API+'/'+enc(PROJ.id)+'/auto-session',{rounds:n}).then(function(r){
-        stop(); BUSY=false; $('#cs-auto').disabled=false;
-        if(r&&r.error) throw new Error(r.error);
-        var errs=(r&&r.rounds||[]).filter(function(x){ return x&&x.error; }).length;
-        return open(PROJ.id,true).then(function(){ G.ok('Auto session done — '+n+' round'+(n===1?'':'s')+(errs?', '+errs+' failed':'')+'.'); drawProjects(); });
-      }).catch(function(err){ stop(); BUSY=false; $('#cs-auto').disabled=false; G.fail('Auto session failed',err); open(PROJ.id,true); });
+      /* one round = one /contribute call: each turn lands on the page as it is written,
+         the "is writing" line names whoever's turn it is, and no single request has to
+         stay open for the whole session. A round that fails stops the session and says why. */
+      var pid=PROJ.id, i=0, done=0, failed=null;
+      function here(){ return !!PROJ&&PROJ.id===pid; }
+      function round(){
+        if(i>=n||failed) return Promise.resolve();
+        var name=names[i%names.length]; i++;
+        var stop=here()?typing(name):function(){};
+        return G.jsend('POST',API+'/'+enc(pid)+'/contribute',{companion:name}).then(function(r){
+          if(r&&r.error) throw new Error(r.error);
+          done++;
+        }).catch(function(err){ failed=err; }).then(function(){
+          stop();
+          return here()?open(pid,true):null;
+        }).then(function(){
+          if(i>=n||failed) return;
+          return new Promise(function(res){ setTimeout(res,800); }).then(round);
+        });
+      }
+      BUSY=true; $('#cs-auto').disabled=true; $('#cs-ask-btn').disabled=true;
+      round().then(function(){
+        BUSY=false; $('#cs-auto').disabled=false; $('#cs-ask-btn').disabled=false; drawProjects();
+        if(failed) G.fail(done?'Auto session stopped after '+done+' round'+(done===1?'':'s'):'Auto session failed',failed);
+        else G.ok('Auto session done — '+n+' round'+(n===1?'':'s')+'.');
+      });
     }},{label:'Cancel'}]});
 });
 $('#cs-export').addEventListener('click',function(){

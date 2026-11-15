@@ -4840,8 +4840,24 @@ async function replaceLastTanevanAssistant(companion, content, timestamp) {
   }
 }
 
-async function bufferToTanevan(role, content, settings, companion, timestamp) {
-  if (!settings.memory?.enabled) return;
+// tanevan_buffer_queue_v1: memory lines for one companion go to Tanevan one at a
+// time, in the order they were queued. Tanevan keeps one database per companion;
+// several lines landing in the same instant (a Creative Studio turn, a voice-call
+// transcript) used to collide there and some were dropped.
+const _tanevanBufferQueues = new Map();
+function bufferToTanevan(role, content, settings, companion, timestamp) {
+  if (!settings.memory?.enabled) return Promise.resolve();
+  const key = String(companion || '').trim().toLowerCase();
+  const prev = _tanevanBufferQueues.get(key) || Promise.resolve();
+  const run = prev
+    .then(() => sendBufferToTanevan(role, content, settings, companion, timestamp))
+    .catch(err => { console.error('bufferToTanevan failed:', err && err.message); });
+  _tanevanBufferQueues.set(key, run);
+  run.then(() => { if (_tanevanBufferQueues.get(key) === run) _tanevanBufferQueues.delete(key); });
+  return run;
+}
+
+async function sendBufferToTanevan(role, content, settings, companion, timestamp) {
   const t0 = Date.now();
   const preview = content.length > 50 ? content.slice(0, 50) + '…' : content;
   const log = addLog({ type: 'tanevan-buffer', companion, direction: 'outbound', summary: `Buffer ${role} → ${companion}: "${preview}"`, status: 'pending' });
@@ -4856,9 +4872,20 @@ async function bufferToTanevan(role, content, settings, companion, timestamp) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(bufferPayload),
-      timeout: 2000
+      signal: AbortSignal.timeout(60000)
     });
-    const bufData = await bufRes.json();
+    // Read the reply as text first: when Tanevan crashes it can answer with an error
+    // page instead of JSON, and the log should say what actually went wrong.
+    const bufText = await bufRes.text();
+    let bufData = null;
+    try { bufData = JSON.parse(bufText); } catch { /* not JSON — an error page */ }
+    if (!bufRes.ok || !bufData || typeof bufData !== 'object') {
+      const reason = (bufData && bufData.error)
+        || (bufText.match(/<title>([^<]*)<\/title>/i) || [])[1]
+        || bufText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)
+        || 'empty reply';
+      throw new Error(`Tanevan /buffer answered ${bufRes.status}: ${reason}`);
+    }
     const details = [];
     details.push(`buffer: ${bufData.buffer_count}`);
     if (bufData.pipeline_triggered) details.push('→ PIPELINE TRIGGERED');
@@ -5386,18 +5413,46 @@ app.post('/api/creative-projects/:id/green-room', (req, res) => {
 });
 
 // === CREATIVE STUDIO — COMPANION CONTRIBUTION ===
-// Ask a companion to contribute to a project (document or green room)
-app.post('/api/creative-projects/:id/contribute', async (req, res) => {
-  const project = getProject(req.params.id);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+// One companion turn on a project (document or green room). Shared by the
+// contribute route and the auto session, so neither calls the other over HTTP.
+function creativeError(status, message) {
+  const err = new Error(message);
+  err.status = status;
+  err.creative = true;
+  return err;
+}
 
-  const { companion: companionName, userMessage } = req.body;
-  if (!companionName) return res.status(400).json({ error: 'companion is required' });
-  if (!project.companions.includes(companionName)) {
-    return res.status(400).json({ error: `${companionName} is not in this project` });
+async function runCreativeContribution(projectId, companionName, userMessage) {
+  let project = getProject(projectId);
+  if (!project) throw creativeError(404, 'Project not found');
+  if (!companionName || typeof companionName !== 'string') throw creativeError(400, 'companion is required');
+  if (!Array.isArray(project.companions) || !project.companions.includes(companionName)) {
+    throw creativeError(400, `${companionName} is not in this project`);
   }
+  if (!Array.isArray(project.document)) project.document = [];
+  if (!Array.isArray(project.greenRoom)) project.greenRoom = [];
 
-  snapshotProject(project, { kind: 'auto', cause: 'contribute', actor: companionName });
+  // What the user typed with "Ask" is part of the room's conversation — keep it.
+  // Saved before the model is called, so it stays in the room even if the call
+  // fails. If the screen already posted this exact line to the room a moment ago
+  // (the older v2 screen does), it is not added twice. The discussion the model
+  // reads leaves this line out — it arrives as the user turn below.
+  const userText = typeof userMessage === 'string' ? userMessage.trim() : '';
+  const lastGR = project.greenRoom[project.greenRoom.length - 1];
+  const alreadyInRoom = !!(userText && lastGR && lastGR.author === 'user' && String(lastGR.content || '').trim() === userText);
+  const recentGR = (alreadyInRoom ? project.greenRoom.slice(0, -1) : project.greenRoom).slice(-20);
+  let userGreenRoomMessage = alreadyInRoom ? lastGR : null;
+  if (userText && !alreadyInRoom) {
+    userGreenRoomMessage = {
+      id: `gr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      author: 'user',
+      content: userText,
+      timestamp: new Date().toISOString()
+    };
+    project.greenRoom.push(userGreenRoomMessage);
+    project.updatedAt = userGreenRoomMessage.timestamp;
+    saveProject(project);
+  }
 
   const settings = getSettings();
   const card = getCompanion(companionName);
@@ -5459,7 +5514,6 @@ app.post('/api/creative-projects/:id/contribute', async (req, res) => {
   }
 
   // Include recent green room discussion
-  const recentGR = project.greenRoom.slice(-20);
   if (recentGR.length > 0) {
     systemPrompt += `\n\n=== RECENT DISCUSSION (Green Room) ===`;
     for (const msg of recentGR) {
@@ -5472,8 +5526,8 @@ app.post('/api/creative-projects/:id/contribute', async (req, res) => {
 
   // Build conversation messages — use userMessage if provided, otherwise ask companion to contribute
   const messages = [];
-  if (userMessage) {
-    messages.push({ role: 'user', content: userMessage });
+  if (userText) {
+    messages.push({ role: 'user', content: userText });
   } else {
     messages.push({ role: 'user', content: 'It\'s your turn. Review the current document and recent green room discussion. You can: add new content with [doc-add]…[/doc-add], edit blocks with [doc-edit-BLOCKID]…[/doc-edit], or discuss in the green room without those tags. Focus on making the document better as a cohesive piece — edit and build on what\'s there rather than only appending.' });
   }
@@ -5494,6 +5548,20 @@ app.post('/api/creative-projects/:id/contribute', async (req, res) => {
     updateLog(creativeLog.id, { direction: 'inbound', status: 'success', duration: Date.now() - t0, details: `~${reply.length} chars` });
     storeAssistantReply(creativeLog.id, reply);
 
+    // The model can take a while. Re-read the project so anything that changed
+    // meanwhile (a note in the room, a new block, an edit) is kept, not overwritten.
+    const fresh = getProject(projectId);
+    if (!fresh) throw creativeError(404, 'This project was deleted while the companion was writing');
+    project = fresh;
+    if (!Array.isArray(project.document)) project.document = [];
+    if (!Array.isArray(project.greenRoom)) project.greenRoom = [];
+
+    // Keep a copy of the page exactly as it stands now, before the companion's
+    // changes go in. This is what History restores if they rewrite or wipe
+    // something you wanted. (Taken here, not at the start, so it also holds
+    // anything you changed while they were writing.)
+    snapshotProject(project, { kind: 'auto', cause: 'contribute', actor: companionName });
+
     const docEdits = [];
     const docAdds = [];
 
@@ -5506,6 +5574,10 @@ app.post('/api/creative-projects/:id/contribute', async (req, res) => {
         existingBlock.lastEditedBy = companionName;
         existingBlock.lastEditedAt = new Date().toISOString();
         docEdits.push({ id, content: body, editedBy: companionName });
+      } else if (body) {
+        // The block id doesn't exist (wrong id, or the block was removed meanwhile).
+        // Keep the writing as a new block rather than dropping it.
+        pushDocAdd(body);
       }
     }
 
@@ -5542,6 +5614,15 @@ app.post('/api/creative-projects/:id/contribute', async (req, res) => {
     }
     working = working.replace(/\[doc-add:\s*([\s\S]*?)(?=\[doc-(?:add|edit)|$)/gi, '');
 
+    // Fallback: the reply was cut off before [/doc-add] (token cap). Keep what was
+    // written as a block instead of spilling a half-tagged draft into the green room.
+    const cutOff = working.match(/\[doc-add\]\s*([\s\S]*?)(?=\[doc-edit-|$)/i);
+    if (cutOff) {
+      pushDocAdd(cutOff[1]);
+      working = working.slice(0, cutOff.index) + working.slice(cutOff.index + cutOff[0].length);
+    }
+    working = working.replace(/\[\/doc-(?:add|edit)\]/gi, '');
+
     const greenRoomText = working.trim();
 
     // If there's remaining text (not in document tags), add it to green room
@@ -5561,8 +5642,8 @@ app.post('/api/creative-projects/:id/contribute', async (req, res) => {
 
     // Buffer to Tanevan memory so companions remember creative sessions
     const studioTs = project.updatedAt || new Date().toISOString();
-    if (userMessage) {
-      bufferToTanevan('user', `[Creative Studio: "${project.title}"] ${userMessage}`, settings, companionName, studioTs);
+    if (userText) {
+      bufferToTanevan('user', `[Creative Studio: "${project.title}"] ${userText}`, settings, companionName, (userGreenRoomMessage && userGreenRoomMessage.timestamp) || studioTs);
     }
     for (const block of docAdds) {
       bufferToTanevan('assistant', `[Creative Studio: "${project.title}" — added to document] ${block.content}`, settings, companionName, block.timestamp || studioTs);
@@ -5574,44 +5655,53 @@ app.post('/api/creative-projects/:id/contribute', async (req, res) => {
       bufferToTanevan('assistant', `[Creative Studio: "${project.title}" — green room] ${greenRoomMessage.content}`, settings, companionName, greenRoomMessage.timestamp);
     }
 
-    res.json({
+    return {
       companion: companionName,
       rawReply: reply,
       documentBlocks: docAdds,
       documentEdits: docEdits,
-      greenRoomMessage: greenRoomMessage
-    });
+      greenRoomMessage: greenRoomMessage,
+      userGreenRoomMessage: userGreenRoomMessage
+    };
 
   } catch (err) {
     updateLog(creativeLog.id, { direction: 'inbound', status: 'error', duration: Date.now() - t0, details: err.message });
-    res.status(500).json({ error: `LLM error: ${err.message}` });
+    if (err.creative) throw err;
+    throw creativeError(500, `LLM error: ${err.message}`);
+  }
+}
+
+// Ask a companion to contribute to a project (document or green room)
+app.post('/api/creative-projects/:id/contribute', async (req, res) => {
+  try {
+    const { companion, userMessage } = req.body || {};
+    res.json(await runCreativeContribution(req.params.id, companion, userMessage));
+  } catch (err) {
+    res.status(err.creative ? err.status : 500).json({ error: err.message });
   }
 });
 
 // === CREATIVE STUDIO — COMPANION-TO-COMPANION AUTO SESSION ===
-// Generate N rounds of companion-to-companion contributions
+// Generate N rounds of companion-to-companion contributions.
+// Runs the contribution directly — the old version called this server's own
+// /contribute over HTTP on a fixed port 3000 with no login, so it failed on any
+// install behind the login wall or on another port.
 app.post('/api/creative-projects/:id/auto-session', async (req, res) => {
   const project = getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  const { rounds = 3 } = req.body;
-  const maxRounds = Math.min(rounds, 10);
+  const names = Array.isArray(project.companions) ? project.companions.filter(n => typeof n === 'string' && n) : [];
+  if (!names.length) return res.status(400).json({ error: 'This project has no companions to take turns' });
+
+  const asked = parseInt(req.body && req.body.rounds, 10);
+  const maxRounds = Math.max(1, Math.min(Number.isFinite(asked) ? asked : 3, 10));
   const results = [];
 
   for (let i = 0; i < maxRounds; i++) {
     // Rotate through companions
-    const companionName = project.companions[i % project.companions.length];
-
+    const companionName = names[i % names.length];
     try {
-      // Use the contribute endpoint logic inline
-      const contributeRes = await fetch(`http://127.0.0.1:3000/api/creative-projects/${project.id}/contribute`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companion: companionName })
-      });
-      const data = await contributeRes.json();
-      results.push(data);
-
+      results.push(await runCreativeContribution(project.id, companionName));
       // Small delay between rounds to avoid rate limits
       if (i < maxRounds - 1) {
         await new Promise(resolve => setTimeout(resolve, 1000));
