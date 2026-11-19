@@ -9273,6 +9273,29 @@ app.post('/api/generate-image', async (req, res) => {
 
   if (useReplicate) {
     // === REPLICATE GENERATION ===
+    // replicate_inline_refs_v1: reference photos ride inside the request as data URIs.
+    // Replicate's own file hosting (what the SDK uses when handed a Buffer) has been leaving
+    // Nano Banana Pro predictions stuck, or refusing them with a 500, since Nov 15, 2026.
+    const replicateInlineRef = async (buf) => {
+      if (!Buffer.isBuffer(buf)) return buf;
+      let out = buf;
+      let mime = 'image/jpeg';
+      try {
+        out = await sharp(buf)
+          .rotate()
+          .resize({ width: 1536, height: 1536, fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 88 })
+          .toBuffer();
+      } catch (e) {
+        console.log(`⚠️ replicateInlineRef: shrink failed (${e.message}) — sending original`);
+        out = buf;
+        mime = (buf[0] === 0xff && buf[1] === 0xd8) ? 'image/jpeg'
+          : (buf.length > 12 && buf.toString('latin1', 8, 12) === 'WEBP') ? 'image/webp'
+          : 'image/png';
+      }
+      console.log(`📦 ref shrunk ${(buf.length / 1048576).toFixed(1)}MB → ${(out.length / 1048576).toFixed(2)}MB`);
+      return `data:${mime};base64,${out.toString('base64')}`;
+    };
     const Replicate = require('replicate');
     const replicate = new Replicate({ auth: settings.replicate.apiKey });
     let genLog = null;
@@ -9406,9 +9429,10 @@ app.post('/api/generate-image', async (req, res) => {
         });
 
         const nbOutput = await replicate.run("google/nano-banana-pro", {
+          wait: { mode: 'poll' },
           input: {
             prompt: finalNbPrompt,
-            image_input: imageUrls,
+            image_input: await Promise.all(imageUrls.map(replicateInlineRef)),
             num_images: 1,
             aspect_ratio: names.length >= 3 ? '3:2' : '1:1',
             resolution: '2K',
@@ -9533,9 +9557,10 @@ app.post('/api/generate-image', async (req, res) => {
         });
 
         repOutput = await replicate.run('google/nano-banana-pro', {
+          wait: { mode: 'poll' },
           input: {
             prompt: finalNbPrompt,
-            image_input: refBuffers,
+            image_input: await Promise.all(refBuffers.map(replicateInlineRef)),
             num_images: 1,
             aspect_ratio: '1:1',
             output_format: 'png'
